@@ -37,9 +37,10 @@ _FULL = ['cover','executive','scope','method','environment',
          'waf_analysis','recon','subdomain_takeover',
          'jwt_analysis','oauth_analysis','twofa_analysis',
          'api_versions','blind_findings','business_logic','cache_poisoning',
+         'smuggling','injection_advanced','client_side','supply_chain','mobile_deeplink',
          'cve_matches','kill_chains','findings','chaos',
          'risk','recommendations','limits',
-         'appendix_cases','appendix_evidence','appendix_extra']
+         'appendix_cases','appendix_submissions','appendix_evidence','appendix_extra']
 
 DEFAULT_CHAPTERS = {
     'bughunt': _FULL, 'web': _FULL, 'apk': _FULL, 'all': _FULL,
@@ -60,6 +61,11 @@ BUILTIN_TITLES = {
     'blind_findings':     'Blind Vulnerability Detection (OOB)',
     'business_logic':     'Business Logic Testing',
     'cache_poisoning':    'Cache Poisoning & Cache Deception',
+    'smuggling':          'HTTP Request Smuggling (CL.TE / TE.CL)',
+    'injection_advanced': 'Advanced Injection — SSTI, XXE, Prototype Pollution, LFI, Clickjacking',
+    'supply_chain':       'Dependency Confusion & Supply Chain Attack',
+    'mobile_deeplink':    'Mobile Deep Link & Intent Hijacking',
+    'client_side':        'Client-Side Attacks — CORS, DNS Rebinding',
     'cve_matches':        'CVE Matching dari Tech Fingerprint',
     'kill_chains':        'Kill Chain & Exploit Chain Analysis',
     'findings':           'Temuan Kerentanan & Bukti PoC',
@@ -69,6 +75,7 @@ BUILTIN_TITLES = {
     'recommendations':    'Rekomendasi Remediasi Prioritas',
     'limits':             'Batasan Pengujian & Status',
     'appendix_cases':     'Lampiran — Daftar Skenario Uji',
+    'appendix_submissions': 'Lampiran — Format Submission Bug Bounty (HackerOne & Bugcrowd)',
     'appendix_evidence':  'Lampiran — Inventaris Bukti & Traffic',
     'appendix_extra':     'Lampiran — Bukti Visual / Screenshot',
 }
@@ -81,10 +88,16 @@ SECTION_HINTS = {
     'twofa_analysis': ['2FA'], 'api_versions': ['API Versioning'],
     'blind_findings': ['Blind Vulnerability'], 'business_logic': ['Business Logic'],
     'cache_poisoning': ['Cache Poisoning'],
+    'smuggling': ['HTTP Request Smuggling'],
+    'injection_advanced': ['Advanced Injection'],
+    'supply_chain': ['Supply Chain'],
+    'mobile_deeplink': ['Mobile Deep Link'],
+    'client_side': ['Client-Side'],
     'cve_matches': ['CVE Matching'], 'kill_chains': ['Kill Chain'],
     'findings': ['Temuan Kerentanan'], 'chaos': ['Pengujian Chaos'],
     'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
     'limits': ['Batasan Pengujian'], 'appendix_cases': ['Daftar Skenario Uji'],
+    'appendix_submissions': ['Format Submission', 'Submission Bug Bounty'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
 }
 
@@ -632,6 +645,83 @@ class Report:
         self.table(['ID', 'Tipe', 'Vector', 'Konfirmasi', 'Severity'],
                    rows, widths=[0.7, 1.6, 2.5, 1.0, 0.9], severity_col=4)
 
+    def smuggling(self):
+        items = self.triage.get('smuggling', [])
+        if not items:
+            self.P('Tidak ada HTTP Request Smuggling (CL.TE / TE.CL / HTTP/2 downgrade) yang terkonfirmasi.', italic=True)
+            return
+        self.P('HTTP Request Smuggling diuji via desync antara Content-Length dan Transfer-Encoding header. Teknik: CL.TE, TE.CL, TE.TE obfuscation, dan HTTP/2 downgrade ke HTTP/1.', italic=True)
+        rows = [
+            [s.get('id', '-'), s.get('variant', '-'), s.get('endpoint', '-')[:45],
+             s.get('finding', '-')[:65], s.get('severity', 'CRITICAL')]
+            for s in items
+        ]
+        self.table(['ID', 'Variant', 'Endpoint', 'Temuan', 'Severity'],
+                   rows, widths=[0.7, 1.0, 1.8, 3.1, 0.9], severity_col=4)
+        for s in items:
+            if s.get('poc_snippet'):
+                self.H('PoC Request', 3)
+                self.P(s['poc_snippet'], mono=True if hasattr(self, '_mono') else False)
+
+    def injection_advanced(self):
+        items = self.triage.get('injection_advanced', [])
+        if not items:
+            self.P('Tidak ada SSTI, XXE, Prototype Pollution, LFI, atau Clickjacking yang terkonfirmasi.', italic=True)
+            return
+        self.P('Pengujian injeksi lanjutan mencakup SSTI (Jinja2/Twig/ERB/Freemarker), XXE via upload XML/SVG/DOCX, Prototype Pollution via JSON __proto__, LFI via path traversal, dan Clickjacking via X-Frame-Options absent.', italic=True)
+        rows = [
+            [i.get('id', '-'), i.get('type', '-'), i.get('location', '-')[:40],
+             i.get('payload', '-')[:40], i.get('finding', '-')[:45],
+             i.get('severity', 'HIGH')]
+            for i in items
+        ]
+        self.table(['ID', 'Tipe', 'Lokasi', 'Payload', 'Hasil', 'Severity'],
+                   rows, widths=[0.7, 1.1, 1.5, 1.5, 1.8, 0.8], severity_col=5)
+
+    def client_side(self):
+        items = self.triage.get('client_side', [])
+        if not items:
+            self.P('Tidak ada CORS wildcard credentialed atau DNS Rebinding yang terkonfirmasi.', italic=True)
+            return
+        self.P('Pengujian client-side mencakup CORS credentialed wildcard (bukti fetch aktual), dan DNS Rebinding via TTL manipulation untuk bypass same-origin policy.', italic=True)
+        rows = [
+            [c.get('id', '-'), c.get('type', '-'), c.get('origin_tested', '-')[:40],
+             c.get('finding', '-')[:60], c.get('severity', 'HIGH')]
+            for c in items
+        ]
+        self.table(['ID', 'Tipe', 'Origin Diuji', 'Temuan', 'Severity'],
+                   rows, widths=[0.7, 1.3, 1.9, 2.7, 0.9], severity_col=4)
+
+    def supply_chain(self):
+        items = self.triage.get('supply_chain', [])
+        if not items:
+            self.P('Tidak ada dependency confusion atau supply chain attack vector yang teridentifikasi.', italic=True)
+            return
+        self.P('Dependency Confusion diuji: nama package internal yang ditemukan di JS/config file dicek apakah tersedia di registry publik (npm, PyPI, RubyGems). Package publik dengan nama sama bisa di-install oleh build pipeline target.', italic=True)
+        rows = [
+            [s.get('id', '-'), s.get('package', '-'), s.get('registry', '-'),
+             'ADA di publik' if s.get('public_exists') else 'TIDAK ada di publik',
+             s.get('found_in', '-')[:45], s.get('severity', 'HIGH')]
+            for s in items
+        ]
+        self.table(['ID', 'Package', 'Registry', 'Status Publik', 'Ditemukan Di', 'Severity'],
+                   rows, widths=[0.6, 1.5, 0.8, 1.2, 2.1, 0.8], severity_col=5)
+
+    def mobile_deeplink(self):
+        items = self.triage.get('mobile_deeplink', [])
+        if not items:
+            self.P('Tidak ada mobile deep link hijacking atau intent abuse yang teridentifikasi.', italic=True)
+            return
+        self.P('Deep link dan intent scheme diuji: exported activity tanpa permission guard, universal link yang bisa di-intercept, dan scheme handler yang tidak memvalidasi origin.', italic=True)
+        rows = [
+            [m.get('id', '-'), m.get('type', '-'), m.get('scheme', '-')[:35],
+             m.get('component', '-')[:35], m.get('finding', '-')[:50],
+             m.get('severity', 'HIGH')]
+            for m in items
+        ]
+        self.table(['ID', 'Tipe', 'Scheme / Link', 'Component', 'Temuan', 'Severity'],
+                   rows, widths=[0.6, 1.0, 1.5, 1.4, 2.1, 0.8], severity_col=5)
+
     def recon(self):
         r = self.triage.get('recon', {})
         self.P('Hasil pemetaan permukaan serangan (attack surface), subdomain, endpoint publik, teknologi, dan secret yang teridentifikasi.', italic=True)
@@ -831,6 +921,48 @@ class Report:
                 self.P(line)
             i += 1
 
+    def appendix_submissions(self):
+        findings = self._findings
+        if not findings:
+            self.P('Tidak ada temuan untuk dibuatkan draft submission.', italic=True)
+            return
+        self.P('Format draft submission siap pakai untuk pelaporan bug bounty (HackerOne, Bugcrowd, dan format umum) yang digabungkan langsung di dokumen ini.', italic=True)
+        vrt_map = {'CRITICAL': 'P1', 'HIGH': 'P2', 'MEDIUM': 'P3', 'LOW': 'P4', 'INFO': 'P5'}
+        for f in findings[:5]:
+            sev = str(f.get('severity', 'HIGH')).upper()
+            h = self.H(f"{f['id']} — {f['title']}", 2)
+            for r in h.runs:
+                if sev in SEV_RGB: r.font.color.rgb = SEV_RGB[sev]
+
+            # HackerOne Draft Format
+            self.H('Format HackerOne', 3)
+            ho_meta = [
+                ['Title / Summary', f['title']],
+                ['Severity', f"{sev} (CVSS: {f.get('cvss', f['score'])})"],
+                ['Weakness / CWE', f.get('cwe', '-')],
+                ['Impact', f['business']],
+                ['Remediation', f['recommendation']],
+            ]
+            self.table(['Field', 'Content'], ho_meta, widths=[1.8, 4.8])
+            if f.get('steps'):
+                self.P('Steps to Reproduce:', bold=True)
+                for i, s in enumerate(f['steps'], 1):
+                    self.bullet(f"{i}. {s}")
+            if f.get('poc_snippet'):
+                self.P('PoC / HTTP Request:', bold=True)
+                self.P(f['poc_snippet'])
+
+            # Bugcrowd Draft Format
+            self.H('Format Bugcrowd', 3)
+            bc_meta = [
+                ['Title', f['title']],
+                ['VRT Priority', vrt_map.get(sev, 'P3')],
+                ['CVSS Score', str(f.get('cvss', f['score']))],
+                ['CWE', f.get('cwe', '-')],
+                ['Remediation', f['recommendation']],
+            ]
+            self.table(['Field', 'Value'], bc_meta, widths=[1.8, 4.8])
+
     def appendix_evidence(self):
         self.P('Daftar berkas artefak, capture traffic, dan screenshot yang tersimpan di direktori pendukung/bukti.', italic=True)
         bukti_dir = os.path.join(self.base, 'bukti')
@@ -937,136 +1069,9 @@ def build(root, profile_override=None, output_override=None):
           'FINDINGS', len(rep._findings), 'KILL CHAINS', len(triage.get('kill_chains',[])),
           'TABLES', len(rep.doc.tables), 'IMAGES', len(rep.doc.inline_shapes))
 
-    # Generate multi-format bug bounty submission files
-    _gen_submissions(root, triage)
     # Generate watch dashboard (static, updated each run)
     _gen_dashboard(root, triage)
     return out
-
-
-def _gen_submissions(root, triage):
-    """Generate HackerOne, Bugcrowd, dan Generic submission markdown."""
-    findings = norm_findings(triage)
-    if not findings:
-        return
-    target = triage.get('target', 'Target')
-    date = triage.get('date', 'assessment')
-
-    # Sort by score desc
-    findings_sorted = sorted(findings, key=lambda f: f['score'], reverse=True)
-    top = findings_sorted[0]
-
-    def _hackerone(f):
-        return f"""## HackerOne Submission Draft — {f['id']}: {f['title']}
-
-**Summary**: {f['title']}
-
-**Severity**: {f['severity']} (CVSS Score: {f.get('cvss', f['score'])})
-
-**Description**:
-{f['actual']}
-
-**Steps to Reproduce**:
-{chr(10).join(f"  {i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "  Lihat poc_snippet di bawah."}
-
-**PoC / HTTP Request**:
-```
-{f.get('poc_snippet', '(lihat bukti terlampir)')}
-```
-
-**Impact**:
-{f['business']}
-
-**Recommendation**:
-{f['recommendation']}
-
-**Supporting Materials**:
-{', '.join(f['evidence']) if f['evidence'] else '(screenshot terlampir di DOCX)'}
-"""
-
-    def _bugcrowd(f):
-        vrt_map = {
-            'CRITICAL': 'P1',
-            'HIGH': 'P2',
-            'MEDIUM': 'P3',
-            'LOW': 'P4',
-            'INFO': 'P5'
-        }
-        return f"""## Bugcrowd Submission Draft — {f['id']}: {f['title']}
-
-Title: {f['title']}
-Target: {target}
-VRT Priority: {vrt_map.get(f['severity'], 'P3')}
-CVSS: {f.get('cvss', str(f['score']))}
-CWE: {f.get('cwe', '-')}
-
-Description:
-{f['actual']}
-
-Steps to Reproduce:
-{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "(lihat poc_snippet)"}
-
-PoC:
-{f.get('poc_snippet', '(lihat bukti terlampir)')}
-
-Impact:
-{f['business']}
-
-Remediation:
-{f['recommendation']}
-"""
-
-    def _generic(f):
-        return f"""## Vulnerability Report — {f['id']}: {f['title']}
-Target: {target}
-Date: {date}
-Severity: {f['severity']} | Risk Score: {f['score']} | CWE: {f.get('cwe', '-')}
-CVSS: {f.get('cvss', str(f['score']))}
-
-### Description
-{f['actual']}
-
-### Expected Behavior
-{f['expected']}
-
-### Steps to Reproduce
-{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "(lihat poc_snippet)"}
-
-### Proof of Concept
-```
-{f.get('poc_snippet', '(lihat bukti terlampir)')}
-```
-
-### Business Impact
-{f['business']}
-
-### Recommended Fix
-{f['recommendation']}
-
----
-"""
-
-    ho_path = os.path.join(root, 'submission-hackerone.md')
-    bc_path = os.path.join(root, 'submission-bugcrowd.md')
-    gn_path = os.path.join(root, 'submission-generic.md')
-
-    with open(ho_path, 'w', encoding='utf-8') as fh:
-        fh.write(f"# HackerOne Submission Drafts — {target} ({date})\n\n")
-        for f in findings_sorted[:5]:  # top 5 findings
-            fh.write(_hackerone(f) + "\n---\n\n")
-    print('SUBMISSION HackerOne ->', ho_path)
-
-    with open(bc_path, 'w', encoding='utf-8') as fh:
-        fh.write(f"# Bugcrowd Submission Drafts — {target} ({date})\n\n")
-        for f in findings_sorted[:5]:
-            fh.write(_bugcrowd(f) + "\n---\n\n")
-    print('SUBMISSION Bugcrowd  ->', bc_path)
-
-    with open(gn_path, 'w', encoding='utf-8') as fh:
-        fh.write(f"# Vulnerability Assessment Report — {target} ({date})\n\n")
-        for f in findings_sorted:
-            fh.write(_generic(f))
-    print('SUBMISSION Generic   ->', gn_path)
 
 
 def _gen_dashboard(root, triage):
@@ -1088,6 +1093,11 @@ def _gen_dashboard(root, triage):
     bizlogics = triage.get('business_logic', [])
     caches = triage.get('cache_poisoning', [])
     takeovers = triage.get('subdomain_takeover', [])
+    smugglings = triage.get('smuggling', [])
+    injections = triage.get('injection_advanced', [])
+    client_sides = triage.get('client_side', [])
+    supply_chains = triage.get('supply_chain', [])
+    deeplinks = triage.get('mobile_deeplink', [])
 
     # Watch diff — compare with previous triage
     ai_dir = os.path.join(root, 'pendukung', 'ai')
@@ -1217,6 +1227,10 @@ def _gen_dashboard(root, triage):
   {f'&nbsp; {badge(str(len(twofas))+" 2FA BYPASS","#B00000")}' if twofas else ''}
   {f'&nbsp; {badge(str(len(blinds))+" BLIND OOB","#C05000")}' if blinds else ''}
   {f'&nbsp; {badge(str(len([t for t in takeovers if t.get("confirmed")]))+" TAKEOVER","#B00000")}' if any(t.get('confirmed') for t in takeovers) else ''}
+  {f'&nbsp; {badge(str(len(smugglings))+" SMUGGLING","#B00000")}' if smugglings else ''}
+  {f'&nbsp; {badge(str(len(injections))+" SSTI/XXE/LFI","#B00000")}' if injections else ''}
+  {f'&nbsp; {badge(str(len(supply_chains))+" DEP CONFUSION","#C05000")}' if supply_chains else ''}
+  {f'&nbsp; {badge(str(len(deeplinks))+" DEEPLINK HIJACK","#C05000")}' if deeplinks else ''}
 </div>
 
 {diff_summary}
@@ -1288,6 +1302,41 @@ def _gen_dashboard(root, triage):
   <table><thead><tr><th>Komponen</th><th>CVE</th><th>CVSS</th><th>Status</th></tr></thead>
   <tbody>{cve_rows}</tbody></table>
 </div>''' if cves else ''}
+
+{f'''<div class="section">
+  <h2>HTTP Request Smuggling ({len(smugglings)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Variant</th><th>Severity</th><th>Temuan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{s.get("id","-")}</td><td>{s.get("variant","-")}</td><td>{badge(s.get("severity","CRITICAL"))}</td><td>{s.get("finding","-")[:70]}</td></tr>' for s in smugglings)}</tbody>
+  </table>
+</div>''' if smugglings else ''}
+
+{f'''<div class="section">
+  <h2>Advanced Injection — SSTI / XXE / LFI / Clickjacking ({len(injections)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Severity</th><th>Payload</th><th>Hasil</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{i.get("id","-")}</td><td>{i.get("type","-")}</td><td>{badge(i.get("severity","HIGH"))}</td><td>{i.get("payload","-")[:40]}</td><td>{i.get("finding","-")[:45]}</td></tr>' for i in injections)}</tbody>
+  </table>
+</div>''' if injections else ''}
+
+{f'''<div class="section">
+  <h2>Client-Side — CORS / DNS Rebinding ({len(client_sides)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Severity</th><th>Temuan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{c.get("id","-")}</td><td>{c.get("type","-")}</td><td>{badge(c.get("severity","HIGH"))}</td><td>{c.get("finding","-")[:70]}</td></tr>' for c in client_sides)}</tbody>
+  </table>
+</div>''' if client_sides else ''}
+
+{f'''<div class="section">
+  <h2>Dependency Confusion ({len(supply_chains)} package)</h2>
+  <table><thead><tr><th>ID</th><th>Package</th><th>Registry</th><th>Severity</th><th>Status</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{s.get("id","-")}</td><td>{s.get("package","-")}</td><td>{s.get("registry","-")}</td><td>{badge(s.get("severity","HIGH"))}</td><td>{"🔴 ADA di publik" if s.get("public_exists") else "bersih"}</td></tr>' for s in supply_chains)}</tbody>
+  </table>
+</div>''' if supply_chains else ''}
+
+{f'''<div class="section">
+  <h2>Mobile Deep Link Hijacking ({len(deeplinks)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Scheme</th><th>Severity</th><th>Temuan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{m.get("id","-")}</td><td>{m.get("type","-")}</td><td>{m.get("scheme","-")}</td><td>{badge(m.get("severity","HIGH"))}</td><td>{m.get("finding","-")[:60]}</td></tr>' for m in deeplinks)}</tbody>
+  </table>
+</div>''' if deeplinks else ''}
 
 <div class="footer">
   Auto-refresh 10 detik. Tutup browser atau ketik <code>stop hunt</code> di chat untuk menghentikan watch mode.<br>

