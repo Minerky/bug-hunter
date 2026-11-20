@@ -371,7 +371,18 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
 ### §26 — Report
 - DOCX: `build_report.py --profile bughunt`.
 - SATU dokumen Word final terpadu — seluruh hasil recon, temuan kerentanan, kill chain, risk register, format submission bug bounty (HackerOne / Bugcrowd), dan **bab Kesimpulan & Rekomendasi Akhir** tercakup langsung di dalam bab dan lampiran DOCX. Tidak ada file `.md` terpisah.
-- Screenshot PoC wajib tertanam di DOCX: simpan ke `pendukung/bukti/screenshots/*.png`, lalu cantumkan nama file pada field `shots` tiap finding di `triage.json` (generator menyisipkan semua gambar, bukan hanya yang pertama).
+- **Aturan bukti temuan — berlaku untuk temuan sekecil apa pun.** INFO/LOW/informatif/header missing/versi terekspos tetap wajib lengkap. Untuk **setiap** temuan:
+  1. **Proses kejadian (PoC) eksplisit dan berurutan** — tulis aksi nyata: request apa yang dikirim, URL/endpoint/host:port, header/payload apa, klik/tap tombol mana, dan respons yang muncul. Jangan hanya menulis "header tidak ada". Contoh: `1. curl -I https://target.com/; 2. Amati respons tidak memuat Content-Security-Policy; 3. Bandingkan dengan endpoint /admin yang juga kosong.`
+  2. **Screenshot asli + anotasi merah** — ambil screenshot/capture saat pembuktian, lalu **lingkari** (default) atau **kotakkan merah** area temuan. Simpan file aslinya di `pendukung/bukti/screenshots/`, lalu cantumkan anotasinya di field `shots` tiap finding di `triage.json` (generator menyisipkan semua gambar, bukan hanya yang pertama):
+     ```json
+     "shots": [{
+       "ref": "pendukung/bukti/screenshots/01_header.png",
+       "highlight": {"type": "circle", "x": 0.62, "y": 0.31, "w": 0.18, "h": 0.12},
+       "label": "Header tidak ada di sini"
+     }]
+     ```
+     `x,y,w,h` relatif 0–1 terhadap ukuran gambar (nilai >1 dibaca piksel). `type: "box"` untuk kotak; alternatif lingkaran: `{"type":"circle","cx":...,"cy":...,"r":...}`.
+  3. **Tertanam di DOCX** — generator menyisipkan gambar yang sudah dilingkari merah **tepat di bawah temuan yang bersangkutan**, lengkap dengan caption label. Jika `highlight` kosong, DOCX menandai *"belum dianotasi merah"* dan temuan dianggap belum selesai.
 - Watch dashboard: `watch-dashboard.html`.
 
 ### §27 — Watch Mode (Playwright Live Dashboard)
