@@ -407,6 +407,12 @@ Gunakan bila temuan keamanan perlu dibuktikan dengan data nyata tanpa mengubahny
    Bila database tidak terjangkau → `BLOCKED`, bukan diklaim aman.
 6. Koneksi ini untuk **membuktikan**, bukan mengeksploitasi. Dilarang memakainya untuk mengubah,
    menghapus, atau mengekstrak data di luar scope yang disetujui.
+7. **Stored procedure — baca definisi, jangan jalankan.** Kunci `sp` di check, misalnya
+   `{"id":"SP-01","sp":"dbo.NamaProsedur","expect":{"column":"definisi","contains":"SELECT"}}`
+   atau `{"id":"SP-02","sp":"*"}` untuk daftar semua prosedur, diterjemahkan menjadi `SELECT` ke
+   `sys.sql_modules`/`sys.objects` dengan parameter binding. Ini membuktikan isi prosedur tanpa
+   menjalankannya. **`EXEC` sengaja ditolak** — prosedur bisa berisi DML/DDL dan akan mengubah bukti
+   serta data. SQLite tidak punya SP; check `sp` di SQLite gagal dengan pesan yang jelas.
 
 ### §27 — Watch Mode (Playwright Live Dashboard)
 
