@@ -385,6 +385,24 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
   3. **Tertanam di DOCX** — generator menyisipkan gambar yang sudah dilingkari merah **tepat di bawah temuan yang bersangkutan**, lengkap dengan caption label. Jika `highlight` kosong, DOCX menandai *"belum dianotasi merah"* dan temuan dianggap belum selesai.
 - Watch dashboard: `watch-dashboard.html`.
 
+### §26b — Verifikasi database (read-only) untuk pembuktian PoC
+Gunakan bila temuan keamanan perlu dibuktikan dengan data nyata tanpa mengubahnya.
+
+1. **Otorisasi tertulis tetap wajib** — scope harus mencakup database yang diakses. Gunakan akun
+   **read-only** dan staging/UAT terlebih dahulu; produksi hanya dengan approval eksplisit.
+2. **Koneksi dari environment variable** — `QA_DB_SQLITE` (SQLite) atau `QA_DB_SERVER` +
+   `QA_DB_NAME` + `QA_DB_USER` + `QA_DB_PASS` (+ `QA_DB_AUTH=windows` untuk Windows auth).
+   Password tidak pernah ditulis di chat, spec, `triage.json`, atau DOCX.
+3. **Jalankan** `python db_verify.py --checks <file-json> --out pendukung/ai/db-verification.json`.
+   Hanya `SELECT` / `WITH` / `PRAGMA`, satu statement per check — `INSERT`/`UPDATE`/`DELETE`/`DROP`
+   dan multi-statement ditolak otomatis.
+4. **Masukkan bab** `"db_verification"` ke `report.chapters` agar generator menyisipkan ringkasan
+   koneksi, tabel query–status, dan baris hasil query ke DOCX.
+5. **Bila asersi `FAIL`/`ERROR`** → buat temuan dengan PoC berurutan + screenshot lingkaran merah.
+   Bila database tidak terjangkau → `BLOCKED`, bukan diklaim aman.
+6. Koneksi ini untuk **membuktikan**, bukan mengeksploitasi. Dilarang memakainya untuk mengubah,
+   menghapus, atau mengekstrak data di luar scope yang disetujui.
+
 ### §27 — Watch Mode (Playwright Live Dashboard)
 
 Aktif jika perintah menyertakan `--watch [interval_menit]`:

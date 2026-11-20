@@ -73,6 +73,7 @@ BUILTIN_TITLES = {
     'chaos':              'Pengujian Chaos / Monkey & Status Cleanup',
     'risk':               'Risk Register & Matriks Risiko',
     'recommendations':    'Rekomendasi Remediasi Prioritas',
+    'db_verification':    'Verifikasi Database (Read-Only)',
     'limits':             'Batasan Pengujian & Status',
     'conclusion':         'Kesimpulan & Rekomendasi Akhir',
     'appendix_cases':     'Lampiran — Daftar Skenario Uji',
@@ -97,6 +98,7 @@ SECTION_HINTS = {
     'cve_matches': ['CVE Matching'], 'kill_chains': ['Kill Chain'],
     'findings': ['Temuan Kerentanan'], 'chaos': ['Pengujian Chaos'],
     'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
+    'db_verification': ['Verifikasi Database'],
     'limits': ['Batasan Pengujian'], 'conclusion': ['Kesimpulan'], 'appendix_cases': ['Daftar Skenario Uji'],
     'appendix_submissions': ['Format Submission', 'Submission Bug Bounty'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
@@ -975,6 +977,56 @@ class Report:
             if not items: continue
             self.H(title, 2)
             for it in items: self.bullet(it)
+
+    def db_verification(self):
+        """Render hasil db_verify.py dari pendukung/ai/db-verification.json."""
+        path = os.path.join(self.base, 'ai', 'db-verification.json')
+        if not os.path.isfile(path):
+            self.P('Tidak ada hasil verifikasi database. Tambahkan `db_verification` ke '
+                   '`report.chapters` dan jalankan `db_verify.py` bila pembuktian berbasis data diperlukan.',
+                   italic=True)
+            return
+        try:
+            data = json.load(open(path, encoding='utf-8'))
+        except Exception as ex:
+            self.P('Gagal membaca hasil verifikasi database: ' + str(ex), italic=True)
+            return
+
+        s = data.get('summary', {}) or {}
+        self.H('Ringkasan koneksi', 2)
+        self.table(['Parameter', 'Nilai'], [
+            ['Engine', data.get('engine', '-')],
+            ['Target', data.get('target', '-')],
+            ['Driver', data.get('driver', '-') or '-'],
+            ['Mode', data.get('mode', 'SELECT saja; tidak ada DML/DDL')],
+            ['Waktu', data.get('generated_at', '-')],
+        ], widths=[1.7, 4.9])
+        self.P(f"Pemeriksaan: {s.get('total', 0)} · PASS {s.get('pass', 0)} · "
+               f"FAIL {s.get('fail', 0)} · ERROR {s.get('error', 0)}", bold=True)
+
+        checks = data.get('checks', [])
+        rows = [[c.get('id', '-'), c.get('name', '-'),
+                 str(c.get('sql', '-')).replace('\n', ' ')[:88], c.get('status', '-')]
+                for c in checks]
+        if rows:
+            self.table(['ID', 'Pemeriksaan', 'Query (SELECT)', 'Status'], rows,
+                       widths=[0.8, 2.25, 2.75, 0.85])
+
+        for c in checks:
+            self.H(f"{c.get('id', '-')} — {c.get('name', '-')}", 3)
+            self.P('Query: ' + str(c.get('sql', '-')).replace('\n', ' '), italic=True)
+            if c.get('detail'):
+                self.P('Asersi: ' + str(c['detail']))
+            if c.get('error'):
+                self.P('Error: ' + str(c['error']), italic=True)
+            cols = c.get('columns') or []
+            vals = c.get('rows') or []
+            if cols and vals:
+                self.table(cols, vals, widths=[max(1.1, 6.6 / len(cols))] * len(cols))
+            elif not vals:
+                self.P('Tidak ada baris dikembalikan.', italic=True)
+        self.P('Koneksi bersifat read-only dan hanya berlaku pada scope berotorisasi. '
+               'Kredensial tidak pernah ditulis ke dokumen ini.', italic=True)
 
     def limits(self):
         self.P('Batasan pengujian, scope yang tidak diuji, dan dependensi lingkungan.', italic=True)
