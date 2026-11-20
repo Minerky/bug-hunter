@@ -371,7 +371,7 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
 ### §26 — Report
 - DOCX: `build_report.py --profile bughunt`.
 - SATU dokumen Word final terpadu — seluruh hasil recon, temuan kerentanan, kill chain, risk register, format submission bug bounty (HackerOne / Bugcrowd), dan **bab Kesimpulan & Rekomendasi Akhir** tercakup langsung di dalam bab dan lampiran DOCX. Tidak ada file `.md` terpisah.
-- **Aturan bukti temuan — berlaku untuk temuan sekecil apa pun.** INFO/LOW/informatif/header missing/versi terekspos tetap wajib lengkap. Untuk **setiap** temuan:
+- **Aturan bukti temuan — temuan sekecil apa pun tidak boleh lolos dari report.** Setiap anomali yang teramati wajib masuk `findings` di `triage.json` dan tampil di DOCX; tidak boleh dibuang, difilter, atau dianggap terlalu sepele untuk ditulis. INFO/LOW/informatif/header missing/versi terekspos tetap wajib lengkap. Untuk **setiap** temuan:
   1. **Proses kejadian (PoC) eksplisit dan berurutan** — tulis aksi nyata: request apa yang dikirim, URL/endpoint/host:port, header/payload apa, klik/tap tombol mana, dan respons yang muncul. Jangan hanya menulis "header tidak ada". Contoh: `1. curl -I https://target.com/; 2. Amati respons tidak memuat Content-Security-Policy; 3. Bandingkan dengan endpoint /admin yang juga kosong.`
   2. **Screenshot asli + anotasi merah** — ambil screenshot/capture saat pembuktian, lalu **lingkari** (default) atau **kotakkan merah** area temuan. Simpan file aslinya di `pendukung/bukti/screenshots/`, lalu cantumkan anotasinya di field `shots` tiap finding di `triage.json` (generator menyisipkan semua gambar, bukan hanya yang pertama):
      ```json
