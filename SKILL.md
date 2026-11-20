@@ -370,7 +370,8 @@ Mapping otomatis: Nginx, WordPress, jQuery, OpenSSL, Apache Struts, Log4j, Sprin
 
 ### §26 — Report
 - DOCX: `build_report.py --profile bughunt`.
-- SATU dokumen Word final terpadu — seluruh hasil recon, temuan kerentanan, kill chain, risk register, dan format submission bug bounty (HackerOne / Bugcrowd) tercakup langsung di dalam bab dan lampiran DOCX. Tidak ada file `.md` terpisah.
+- SATU dokumen Word final terpadu — seluruh hasil recon, temuan kerentanan, kill chain, risk register, format submission bug bounty (HackerOne / Bugcrowd), dan **bab Kesimpulan & Rekomendasi Akhir** tercakup langsung di dalam bab dan lampiran DOCX. Tidak ada file `.md` terpisah.
+- Screenshot PoC wajib tertanam di DOCX: simpan ke `pendukung/bukti/screenshots/*.png`, lalu cantumkan nama file pada field `shots` tiap finding di `triage.json` (generator menyisipkan semua gambar, bukan hanya yang pertama).
 - Watch dashboard: `watch-dashboard.html`.
 
 ### §27 — Watch Mode (Playwright Live Dashboard)

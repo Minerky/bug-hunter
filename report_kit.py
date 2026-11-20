@@ -39,7 +39,7 @@ _FULL = ['cover','executive','scope','method','environment',
          'api_versions','blind_findings','business_logic','cache_poisoning',
          'smuggling','injection_advanced','client_side','supply_chain','mobile_deeplink',
          'cve_matches','kill_chains','findings','chaos',
-         'risk','recommendations','limits',
+         'risk','recommendations','limits','conclusion',
          'appendix_cases','appendix_submissions','appendix_evidence','appendix_extra']
 
 DEFAULT_CHAPTERS = {
@@ -74,6 +74,7 @@ BUILTIN_TITLES = {
     'risk':               'Risk Register & Matriks Risiko',
     'recommendations':    'Rekomendasi Remediasi Prioritas',
     'limits':             'Batasan Pengujian & Status',
+    'conclusion':         'Kesimpulan & Rekomendasi Akhir',
     'appendix_cases':     'Lampiran — Daftar Skenario Uji',
     'appendix_submissions': 'Lampiran — Format Submission Bug Bounty (HackerOne & Bugcrowd)',
     'appendix_evidence':  'Lampiran — Inventaris Bukti & Traffic',
@@ -96,7 +97,7 @@ SECTION_HINTS = {
     'cve_matches': ['CVE Matching'], 'kill_chains': ['Kill Chain'],
     'findings': ['Temuan Kerentanan'], 'chaos': ['Pengujian Chaos'],
     'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
-    'limits': ['Batasan Pengujian'], 'appendix_cases': ['Daftar Skenario Uji'],
+    'limits': ['Batasan Pengujian'], 'conclusion': ['Kesimpulan'], 'appendix_cases': ['Daftar Skenario Uji'],
     'appendix_submissions': ['Format Submission', 'Submission Bug Bounty'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
 }
@@ -329,6 +330,7 @@ class Report:
         candidates = [
             ref,
             os.path.join(self.base, 'bukti', ref),
+            os.path.join(self.base, 'bukti', 'screenshots', ref),
             os.path.join(self.base, 'screenshots', ref),
             os.path.join(self.base, ref),
             os.path.join(self.root, ref),
@@ -336,7 +338,7 @@ class Report:
         for c in candidates:
             if c and os.path.isfile(c): return c
         bn = os.path.basename(ref)
-        for sub in ['bukti', 'screenshots', '.']:
+        for sub in ['bukti', os.path.join('bukti', 'screenshots'), 'screenshots', '.']:
             d = os.path.join(self.base, sub)
             if os.path.isdir(d):
                 p = os.path.join(d, bn)
@@ -833,7 +835,6 @@ class Report:
                 if fp and fp not in used:
                     self.image(shot, f"Bukti Visual: {f['id']} — {os.path.basename(fp)}")
                     used.add(fp)
-                    break
 
     def chaos(self):
         ch = self.triage.get('chaos', {})
@@ -890,6 +891,73 @@ class Report:
         for x in self.triage.get('limitations', []): self.bullet(x)
         if self.cfg.get('limit_note'): self.P(self.cfg['limit_note'], bold=True)
         self.blocks(self.cfg.get('limits_blocks', []))
+
+    def conclusion(self):
+        tr = self.triage
+        s = tr.get('summary', {}) or {}
+        by = s.get('by_severity', {}) or {}
+        crit = int(by.get('CRITICAL', 0) or 0)
+        high = int(by.get('HIGH', 0) or 0)
+        med = int(by.get('MEDIUM', 0) or 0)
+        low = int(by.get('LOW', 0) or 0)
+        info = int(by.get('INFO', 0) or 0)
+        total = int(s.get('total_findings', len(self._findings)) or 0)
+        if crit:
+            status = 'KRITIS — TIDAK LOLOS, perbaikan segera sebelum rilis'
+        elif high:
+            status = 'RISIKO TINGGI — perbaikan wajib sebelum rilis'
+        elif med:
+            status = 'RISIKO SEDANG — perbaikan dijadwalkan'
+        elif total:
+            status = 'RISIKO RENDAH — perbaikan lanjutan'
+        else:
+            status = 'TIDAK ADA KERENTANAN TERKONFIRMASI'
+
+        self.P('Kesimpulan akhir dari seluruh fase pengujian, merangkum status risiko, temuan utama, dan keputusan lanjutan.', italic=True)
+        rows = [
+            ['Status akhir', status],
+            ['Total temuan', str(total)],
+            ['Distribusi', f'CRITICAL {crit} | HIGH {high} | MEDIUM {med} | LOW {low} | INFO {info}'],
+            ['Verdict', str(tr.get('verdict') or s.get('verdict') or '-')],
+            ['Lingkungan', str(tr.get('environment', '-'))],
+            ['Status cleanup', str((tr.get('chaos') or {}).get('cleanup_status', '-'))],
+        ]
+        self.table(['Aspek', 'Nilai'], rows, widths=[1.6, 5.0])
+
+        self.H('Simpulan Utama', 2)
+        if total:
+            top = self._findings[0]
+            self.bullet(f"Temuan paling signifikan: {top['id']} — {top['title']} ({top['severity']}).")
+            self.bullet(f"Sebanyak {total} temuan terkonfirmasi; prioritas penanganan mengikuti urutan severity pada bab Risk Register dan Rekomendasi.")
+        else:
+            self.bullet('Tidak ada kerentanan yang terkonfirmasi pada cakupan dan metode yang dijalankan.')
+        passed = tr.get('passed_checks', []) or []
+        if passed:
+            self.bullet(f"Sebanyak {len(passed)} pemeriksaan dinyatakan lolos dan menjadi bukti bahwa kontrol existing berfungsi.")
+        chains = tr.get('kill_chains', []) or []
+        self.bullet(f"Exploit chain yang berhasil: {len(chains)}. " +
+                    ("Tidak ada rangkaian eksploitasi yang meningkatkan dampak temuan."
+                     if not chains else "Temuan terkait deverifikasi dengan chain tersebut dan severity disesuaikan."))
+        self.bullet('Hasil pengujian ini gambaran pada titik waktu pelaksanaan; konfigurasi atau kode baru dapat mengubah status risiko.')
+
+        custom = tr.get('conclusion')
+        if custom:
+            self.H('Catatan Kesimpulan Tambahan', 2)
+            if isinstance(custom, str):
+                self.P(custom)
+            elif isinstance(custom, dict):
+                if custom.get('narrative'): self.P(str(custom['narrative']))
+                for k, label in [('decision', 'Keputusan'), ('next_steps', 'Langkah Berikutnya')]:
+                    v = custom.get(k)
+                    if not v: continue
+                    if isinstance(v, list):
+                        self.H(label, 3)
+                        for x in v: self.bullet(str(x))
+                    else:
+                        self.P(f"{label}: {v}")
+            elif isinstance(custom, list):
+                for x in custom: self.bullet(str(x))
+        self.blocks(self.cfg.get('conclusion_blocks', []))
 
     def appendix_cases(self):
         path = os.path.join(self.base, 'ai', 'generated-cases.md')
