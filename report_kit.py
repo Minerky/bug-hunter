@@ -34,14 +34,18 @@ SEV_RGB = {'CRITICAL': RGBColor(0xB0,0x00,0x00), 'HIGH': RGBColor(0xC0,0x50,0x00
            'INFO': RGBColor(0x2B,0x5B,0x84)}
 
 DEFAULT_CHAPTERS = {
-    'bughunt': ['cover','executive','scope','method','environment','recon','findings',
-                'chaos','risk','recommendations','limits','appendix_cases','appendix_evidence','appendix_extra'],
-    'web': ['cover','executive','scope','method','environment','recon','findings',
-            'chaos','risk','recommendations','limits','appendix_cases','appendix_evidence','appendix_extra'],
-    'apk': ['cover','executive','scope','method','environment','recon','findings',
-            'chaos','risk','recommendations','limits','appendix_cases','appendix_evidence','appendix_extra'],
-    'all': ['cover','executive','scope','method','environment','recon','findings',
-            'chaos','risk','recommendations','limits','appendix_cases','appendix_evidence','appendix_extra'],
+    'bughunt': ['cover','executive','scope','method','environment','recon','kill_chains',
+                'findings','chaos','risk','recommendations','limits',
+                'appendix_cases','appendix_evidence','appendix_extra'],
+    'web': ['cover','executive','scope','method','environment','recon','kill_chains',
+            'findings','chaos','risk','recommendations','limits',
+            'appendix_cases','appendix_evidence','appendix_extra'],
+    'apk': ['cover','executive','scope','method','environment','recon','kill_chains',
+            'findings','chaos','risk','recommendations','limits',
+            'appendix_cases','appendix_evidence','appendix_extra'],
+    'all': ['cover','executive','scope','method','environment','recon','kill_chains',
+            'findings','chaos','risk','recommendations','limits',
+            'appendix_cases','appendix_evidence','appendix_extra'],
 }
 
 BUILTIN_TITLES = {
@@ -49,7 +53,8 @@ BUILTIN_TITLES = {
     'scope': 'Scope & Rules of Engagement',
     'method': 'Metodologi Pengujian',
     'environment': 'Target & Lingkungan Pengujian',
-    'recon': 'Hasil Reconnaissance & Surface Mapping',
+    'recon': 'Hasil Reconnaissance & Attack Surface Mapping',
+    'kill_chains': 'Kill Chain & Exploit Chain Analysis',
     'findings': 'Temuan Kerentanan & Bukti PoC',
     'passed': 'Pemeriksaan yang Lolos',
     'chaos': 'Pengujian Chaos / Monkey & Status Cleanup',
@@ -63,8 +68,8 @@ BUILTIN_TITLES = {
 
 SECTION_HINTS = {
     'scope': ['Scope & Rules'], 'method': ['Metodologi'], 'environment': ['Target & Lingkungan'],
-    'recon': ['Reconnaissance'], 'findings': ['Temuan Kerentanan'], 'chaos': ['Pengujian Chaos'],
-    'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
+    'recon': ['Reconnaissance'], 'kill_chains': ['Kill Chain'], 'findings': ['Temuan Kerentanan'],
+    'chaos': ['Pengujian Chaos'], 'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
     'limits': ['Batasan Pengujian'], 'appendix_cases': ['Daftar Skenario Uji'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
 }
@@ -436,20 +441,76 @@ class Report:
 
     def recon(self):
         r = self.triage.get('recon', {})
-        self.P('Hasil pemetaan permukaan serangan (attack surface), endpoint publik, dan parameter target.', italic=True)
-        if 'endpoints' in r:
-            self.H('Endpoint Terpetakan', 2)
+        self.P('Hasil pemetaan permukaan serangan (attack surface), subdomain, endpoint publik, teknologi, dan secret yang teridentifikasi.', italic=True)
+
+        # Subdomain enumeration results
+        subdomains = r.get('subdomains_found', [])
+        if subdomains:
+            self.H('Subdomain Teridentifikasi', 2)
+            rows = [[s if isinstance(s, str) else s.get('host', '-'),
+                     s.get('ip', '-') if isinstance(s, dict) else '-',
+                     s.get('status', '-') if isinstance(s, dict) else '-',
+                     s.get('tech', '-') if isinstance(s, dict) else '-']
+                    for s in subdomains]
+            self.table(['Subdomain', 'IP', 'HTTP Status', 'Teknologi'], rows, widths=[2.4, 1.3, 0.9, 2.0])
+
+        # Technology fingerprint
+        tech = r.get('tech_stack', [])
+        if tech:
+            self.H('Fingerprint Teknologi & Stack', 2)
+            self.P('Terdeteksi: ' + ', '.join(tech if isinstance(tech, list) else [str(tech)]))
+
+        # Endpoint map
+        endpoints = r.get('endpoints', [])
+        if endpoints:
+            self.H('Peta Endpoint Teridentifikasi', 2)
             rows = [[ep.get('method','GET'), ep.get('url','-'), ep.get('auth','Public'), str(ep.get('status','-'))]
-                    for ep in r.get('endpoints', [])]
-            if rows:
-                self.table(['Method', 'URL / Path', 'Auth Required', 'Status Code'], rows, widths=[0.9, 3.8, 1.1, 0.8])
-        if 'secrets_detected' in r:
-            self.H('Potensi Kredensial / Token Teridentifikasi di Artefak', 2)
-            rows = [[s.get('type','Secret'), s.get('location','-'), s.get('value','(...)'), s.get('risk','Medium')]
-                    for s in r.get('secrets_detected', [])]
-            if rows:
-                self.table(['Jenis Secret', 'Lokasi / File', 'Nilai Terdeteksi', 'Risiko'], rows, widths=[1.3, 2.4, 2.1, 0.8])
+                    for ep in endpoints]
+            self.table(['Method', 'URL / Path', 'Auth Required', 'Status Code'], rows, widths=[0.9, 3.8, 1.1, 0.8])
+
+        # Hardcoded secrets
+        secrets = r.get('secrets_detected', [])
+        if secrets:
+            self.H('Credential & Secret Hardcoded Terdeteksi', 2)
+            rows = [[s.get('type','Secret'), s.get('location','-'), s.get('value','(...)'), s.get('risk','MEDIUM')]
+                    for s in secrets]
+            self.table(['Jenis Secret', 'Lokasi / File', 'Nilai Terdeteksi', 'Risiko'], rows,
+                       widths=[1.3, 2.4, 2.1, 0.8], severity_col=3)
+
         self.blocks(self.cfg.get('recon_blocks', []))
+
+    def kill_chains(self):
+        chains = self.triage.get('kill_chains', [])
+        if not chains:
+            self.P('Tidak ada exploit chain yang berhasil dieksekusi pada sesi ini.', italic=True)
+            return
+        self.P('Rangkaian eksploitasi (kill chain) yang berhasil dibuktikan. Tiap chain menggabungkan dua atau lebih kerentanan menjadi satu jalur serangan dengan dampak akhir yang terukur.', italic=True)
+        for kc in chains:
+            sev = str(kc.get('severity', 'HIGH')).upper()
+            h = self.H(f"{kc.get('id','-')} — {kc.get('name','-')}", 2)
+            for r in h.runs:
+                if sev in SEV_RGB: r.font.color.rgb = SEV_RGB[sev]
+
+            meta_rows = [
+                ['Severity / CVSS', f"{sev} — {kc.get('cvss','(-)')}"],
+                ['Status Verifikasi', kc.get('status', 'VERIFIED')],
+                ['Dampak Akhir', kc.get('business_impact', '-')],
+            ]
+            self.table(['Parameter', 'Nilai'], meta_rows, widths=[1.8, 4.8])
+
+            steps = kc.get('steps', [])
+            if steps:
+                self.P('Urutan Eksploitasi:', bold=True)
+                for i, s in enumerate(steps, 1):
+                    self.bullet(f"[{i}] {s}")
+
+            shots = kc.get('evidence', [])
+            for shot in shots:
+                ref = os.path.basename(shot) if isinstance(shot, str) else shot
+                fp = self.resolve_image(ref)
+                if fp:
+                    self.image(ref, f"Bukti: {kc.get('id','-')} — {os.path.basename(fp)}")
+                    break
 
     def findings(self):
         self.P('Temuan kerentanan diurutkan berdasarkan tingkat keparahan. Setiap temuan dilengkapi langkah pembuktian konsep (Proof of Concept) yang dapat direproduksi.', italic=True)
@@ -671,7 +732,8 @@ def build(root, profile_override=None, output_override=None):
         if isinstance(ch, str):
             title = BUILTIN_TITLES.get(ch, ch.replace('_',' ').title())
             rep.H(f"{n}. {title}", 1)
-            getattr(rep, ch)()
+            if hasattr(rep, ch):
+                getattr(rep, ch)()
         else:
             rep.H(f"{n}. {ch.get('title','Bagian')}", 1)
             rep.blocks(ch.get('blocks', []))
@@ -679,9 +741,245 @@ def build(root, profile_override=None, output_override=None):
     rep.doc.save(out)
     print('SAVED', out)
     print('PROFILE', profile, 'CHAPTERS', len([c for c in chapters if c != 'cover']),
-          'FINDINGS', len(rep._findings), 'TABLES', len(rep.doc.tables),
-          'IMAGES', len(rep.doc.inline_shapes))
+          'FINDINGS', len(rep._findings), 'KILL CHAINS', len(triage.get('kill_chains',[])),
+          'TABLES', len(rep.doc.tables), 'IMAGES', len(rep.doc.inline_shapes))
+
+    # Generate multi-format bug bounty submission files
+    _gen_submissions(root, triage)
+    # Generate watch dashboard (static, updated each run)
+    _gen_dashboard(root, triage)
     return out
+
+
+def _gen_submissions(root, triage):
+    """Generate HackerOne, Bugcrowd, dan Generic submission markdown."""
+    findings = norm_findings(triage)
+    if not findings:
+        return
+    target = triage.get('target', 'Target')
+    date = triage.get('date', 'assessment')
+
+    # Sort by score desc
+    findings_sorted = sorted(findings, key=lambda f: f['score'], reverse=True)
+    top = findings_sorted[0]
+
+    def _hackerone(f):
+        return f"""## HackerOne Submission Draft — {f['id']}: {f['title']}
+
+**Summary**: {f['title']}
+
+**Severity**: {f['severity']} (CVSS Score: {f.get('cvss', f['score'])})
+
+**Description**:
+{f['actual']}
+
+**Steps to Reproduce**:
+{chr(10).join(f"  {i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "  Lihat poc_snippet di bawah."}
+
+**PoC / HTTP Request**:
+```
+{f.get('poc_snippet', '(lihat bukti terlampir)')}
+```
+
+**Impact**:
+{f['business']}
+
+**Recommendation**:
+{f['recommendation']}
+
+**Supporting Materials**:
+{', '.join(f['evidence']) if f['evidence'] else '(screenshot terlampir di DOCX)'}
+"""
+
+    def _bugcrowd(f):
+        vrt_map = {
+            'CRITICAL': 'P1',
+            'HIGH': 'P2',
+            'MEDIUM': 'P3',
+            'LOW': 'P4',
+            'INFO': 'P5'
+        }
+        return f"""## Bugcrowd Submission Draft — {f['id']}: {f['title']}
+
+Title: {f['title']}
+Target: {target}
+VRT Priority: {vrt_map.get(f['severity'], 'P3')}
+CVSS: {f.get('cvss', str(f['score']))}
+CWE: {f.get('cwe', '-')}
+
+Description:
+{f['actual']}
+
+Steps to Reproduce:
+{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "(lihat poc_snippet)"}
+
+PoC:
+{f.get('poc_snippet', '(lihat bukti terlampir)')}
+
+Impact:
+{f['business']}
+
+Remediation:
+{f['recommendation']}
+"""
+
+    def _generic(f):
+        return f"""## Vulnerability Report — {f['id']}: {f['title']}
+Target: {target}
+Date: {date}
+Severity: {f['severity']} | Risk Score: {f['score']} | CWE: {f.get('cwe', '-')}
+CVSS: {f.get('cvss', str(f['score']))}
+
+### Description
+{f['actual']}
+
+### Expected Behavior
+{f['expected']}
+
+### Steps to Reproduce
+{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(f['steps'])) if f['steps'] else "(lihat poc_snippet)"}
+
+### Proof of Concept
+```
+{f.get('poc_snippet', '(lihat bukti terlampir)')}
+```
+
+### Business Impact
+{f['business']}
+
+### Recommended Fix
+{f['recommendation']}
+
+---
+"""
+
+    ho_path = os.path.join(root, 'submission-hackerone.md')
+    bc_path = os.path.join(root, 'submission-bugcrowd.md')
+    gn_path = os.path.join(root, 'submission-generic.md')
+
+    with open(ho_path, 'w', encoding='utf-8') as fh:
+        fh.write(f"# HackerOne Submission Drafts — {target} ({date})\n\n")
+        for f in findings_sorted[:5]:  # top 5 findings
+            fh.write(_hackerone(f) + "\n---\n\n")
+    print('SUBMISSION HackerOne ->', ho_path)
+
+    with open(bc_path, 'w', encoding='utf-8') as fh:
+        fh.write(f"# Bugcrowd Submission Drafts — {target} ({date})\n\n")
+        for f in findings_sorted[:5]:
+            fh.write(_bugcrowd(f) + "\n---\n\n")
+    print('SUBMISSION Bugcrowd  ->', bc_path)
+
+    with open(gn_path, 'w', encoding='utf-8') as fh:
+        fh.write(f"# Vulnerability Assessment Report — {target} ({date})\n\n")
+        for f in findings_sorted:
+            fh.write(_generic(f))
+    print('SUBMISSION Generic   ->', gn_path)
+
+
+def _gen_dashboard(root, triage):
+    """Generate watch-dashboard.html — live view untuk Playwright watch mode."""
+    import datetime
+    target = triage.get('target', 'Target')
+    date = triage.get('date', str(datetime.date.today()))
+    verdict = triage.get('verdict', triage.get('summary', {}).get('verdict', 'PENDING'))
+    findings = norm_findings(triage)
+    chains = triage.get('kill_chains', [])
+    summary = triage.get('summary', {})
+    by_sev = summary.get('by_severity', {})
+
+    sev_color = {'CRITICAL': '#B00000', 'HIGH': '#C05000', 'MEDIUM': '#8A6D00',
+                 'LOW': '#336633', 'INFO': '#2B5B84', 'OPEN': '#8A6D00',
+                 'VERIFIED': '#336633', 'PARTIAL': '#B00000'}
+
+    def badge(text, color=None):
+        c = color or sev_color.get(str(text).upper(), '#555')
+        return f'<span style="background:{c};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:bold">{text}</span>'
+
+    finding_rows = ''.join(
+        f'<tr><td>{f["id"]}</td><td>{f["title"][:60]}</td>'
+        f'<td>{badge(f["severity"])}</td>'
+        f'<td style="text-align:center;font-weight:bold">{f["score"]}</td>'
+        f'<td>{f["status"]}</td></tr>'
+        for f in sorted(findings, key=lambda x: x['score'], reverse=True)
+    )
+
+    chain_rows = ''.join(
+        f'<tr><td>{kc.get("id","-")}</td><td>{kc.get("name","-")[:60]}</td>'
+        f'<td>{badge(kc.get("severity","HIGH"))}</td>'
+        f'<td>{badge(kc.get("status","VERIFIED"), sev_color.get(kc.get("status","VERIFIED").upper(), "#555"))}</td></tr>'
+        for kc in chains
+    )
+
+    cleanup_status = triage.get('chaos', {}).get('cleanup_status', 'VERIFIED')
+    cleanup_badge = badge(f'CLEANUP: {cleanup_status}', sev_color.get(cleanup_status.upper(), '#555'))
+
+    html = f"""<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="10">
+<title>Bug Hunter — Live Dashboard — {target}</title>
+<style>
+  body {{font-family:Calibri,Arial,sans-serif;margin:0;background:#0E1A2B;color:#E8EDF5}}
+  header {{background:#1B2F4A;padding:16px 28px;border-bottom:3px solid #2E6DA4}}
+  h1 {{margin:0;font-size:20px;color:#7EC8E3}} h2 {{color:#A8C8E8;font-size:15px;margin:14px 0 6px}}
+  .meta {{font-size:12px;color:#8A9BAD;margin-top:4px}}
+  .grid {{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:18px 28px}}
+  .card {{background:#1B2F4A;border-radius:8px;padding:14px;text-align:center}}
+  .card .num {{font-size:30px;font-weight:bold}} .card .lbl {{font-size:12px;color:#8A9BAD}}
+  .section {{padding:0 28px 20px}} table {{width:100%;border-collapse:collapse;font-size:13px}}
+  th {{background:#1B2F4A;padding:8px 10px;text-align:left;color:#7EC8E3}}
+  td {{padding:7px 10px;border-bottom:1px solid #1B2F4A}}
+  tr:nth-child(even) {{background:#111E30}}
+  .verdict {{padding:14px 28px;font-size:18px;font-weight:bold}}
+  .footer {{padding:10px 28px;font-size:11px;color:#8A9BAD;border-top:1px solid #1B2F4A}}
+  span {{display:inline-block}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎯 Bug Hunter — Live Dashboard</h1>
+  <div class="meta">Target: <b style="color:#7EC8E3">{target}</b> &nbsp;|&nbsp; Tanggal: {date} &nbsp;|&nbsp; Auto-refresh: 10 detik</div>
+</header>
+
+<div class="grid">
+  <div class="card"><div class="num" style="color:#B00000">{by_sev.get('CRITICAL',0)}</div><div class="lbl">CRITICAL</div></div>
+  <div class="card"><div class="num" style="color:#C05000">{by_sev.get('HIGH',0)}</div><div class="lbl">HIGH</div></div>
+  <div class="card"><div class="num" style="color:#8A6D00">{by_sev.get('MEDIUM',0)}</div><div class="lbl">MEDIUM</div></div>
+  <div class="card"><div class="num" style="color:#336633">{by_sev.get('LOW',0)}</div><div class="lbl">LOW</div></div>
+  <div class="card"><div class="num" style="color:#2B5B84">{by_sev.get('INFO',0)}</div><div class="lbl">INFO</div></div>
+</div>
+
+<div class="verdict">Status: {badge(verdict, '#B00000' if 'CRITICAL' in str(verdict) or 'DO_NOT' in str(verdict) else '#336633')}
+  &nbsp; {cleanup_badge}</div>
+
+<div class="section">
+  <h2>Temuan Kerentanan ({len(findings)} total)</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Judul</th><th>Severity</th><th>Skor</th><th>Status</th></tr></thead>
+    <tbody>{finding_rows if finding_rows else '<tr><td colspan=5 style="color:#8A9BAD">Belum ada temuan.</td></tr>'}</tbody>
+  </table>
+</div>
+
+{f'''<div class="section">
+  <h2>Kill Chain / Exploit Chain ({len(chains)} chain)</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Nama Chain</th><th>Severity</th><th>Status</th></tr></thead>
+    <tbody>{chain_rows}</tbody>
+  </table>
+</div>''' if chains else ''}
+
+<div class="footer">
+  Dashboard ini di-generate otomatis setiap run hunt selesai. Tutup browser atau ketik <code>stop hunt</code> di chat untuk menghentikan watch mode.
+  <br>Source: pendukung/ai/triage.json &nbsp;|&nbsp; Last updated: {date}
+</div>
+</body>
+</html>"""
+
+    dash_path = os.path.join(root, 'watch-dashboard.html')
+    with open(dash_path, 'w', encoding='utf-8') as fh:
+        fh.write(html)
+    print('DASHBOARD ->', dash_path)
 
 
 def verify(root, docx=None):
