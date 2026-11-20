@@ -33,44 +33,45 @@ SEV_RGB = {'CRITICAL': RGBColor(0xB0,0x00,0x00), 'HIGH': RGBColor(0xC0,0x50,0x00
            'MEDIUM': RGBColor(0x8A,0x6D,0x00), 'LOW': RGBColor(0x33,0x66,0x33),
            'INFO': RGBColor(0x2B,0x5B,0x84)}
 
+_FULL = ['cover','executive','scope','method','environment',
+         'waf_analysis','recon','jwt_analysis','cve_matches',
+         'kill_chains','findings','chaos',
+         'risk','recommendations','limits',
+         'appendix_cases','appendix_evidence','appendix_extra']
+
 DEFAULT_CHAPTERS = {
-    'bughunt': ['cover','executive','scope','method','environment','recon','kill_chains',
-                'findings','chaos','risk','recommendations','limits',
-                'appendix_cases','appendix_evidence','appendix_extra'],
-    'web': ['cover','executive','scope','method','environment','recon','kill_chains',
-            'findings','chaos','risk','recommendations','limits',
-            'appendix_cases','appendix_evidence','appendix_extra'],
-    'apk': ['cover','executive','scope','method','environment','recon','kill_chains',
-            'findings','chaos','risk','recommendations','limits',
-            'appendix_cases','appendix_evidence','appendix_extra'],
-    'all': ['cover','executive','scope','method','environment','recon','kill_chains',
-            'findings','chaos','risk','recommendations','limits',
-            'appendix_cases','appendix_evidence','appendix_extra'],
+    'bughunt': _FULL, 'web': _FULL, 'apk': _FULL, 'all': _FULL,
 }
 
 BUILTIN_TITLES = {
-    'executive': 'Ringkasan Eksekutif & Distribusi Risiko',
-    'scope': 'Scope & Rules of Engagement',
-    'method': 'Metodologi Pengujian',
-    'environment': 'Target & Lingkungan Pengujian',
-    'recon': 'Hasil Reconnaissance & Attack Surface Mapping',
-    'kill_chains': 'Kill Chain & Exploit Chain Analysis',
-    'findings': 'Temuan Kerentanan & Bukti PoC',
-    'passed': 'Pemeriksaan yang Lolos',
-    'chaos': 'Pengujian Chaos / Monkey & Status Cleanup',
-    'risk': 'Risk Register & Matriks Risiko',
+    'executive':       'Ringkasan Eksekutif & Distribusi Risiko',
+    'scope':           'Scope & Rules of Engagement',
+    'method':          'Metodologi Pengujian',
+    'environment':     'Target & Lingkungan Pengujian',
+    'waf_analysis':    'WAF Detection & Bypass Analysis',
+    'recon':           'Reconnaissance & Attack Surface Mapping',
+    'jwt_analysis':    'JWT Security Analysis',
+    'cve_matches':     'CVE Matching dari Tech Fingerprint',
+    'kill_chains':     'Kill Chain & Exploit Chain Analysis',
+    'findings':        'Temuan Kerentanan & Bukti PoC',
+    'passed':          'Pemeriksaan yang Lolos',
+    'chaos':           'Pengujian Chaos / Monkey & Status Cleanup',
+    'risk':            'Risk Register & Matriks Risiko',
     'recommendations': 'Rekomendasi Remediasi Prioritas',
-    'limits': 'Batasan Pengujian & Status',
-    'appendix_cases': 'Lampiran — Daftar Skenario Uji',
-    'appendix_evidence': 'Lampiran — Inventaris Bukti & Traffic',
-    'appendix_extra': 'Lampiran — Bukti Visual / Screenshot',
+    'limits':          'Batasan Pengujian & Status',
+    'appendix_cases':  'Lampiran — Daftar Skenario Uji',
+    'appendix_evidence':'Lampiran — Inventaris Bukti & Traffic',
+    'appendix_extra':  'Lampiran — Bukti Visual / Screenshot',
 }
 
 SECTION_HINTS = {
     'scope': ['Scope & Rules'], 'method': ['Metodologi'], 'environment': ['Target & Lingkungan'],
-    'recon': ['Reconnaissance'], 'kill_chains': ['Kill Chain'], 'findings': ['Temuan Kerentanan'],
-    'chaos': ['Pengujian Chaos'], 'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
-    'limits': ['Batasan Pengujian'], 'appendix_cases': ['Daftar Skenario Uji'],
+    'waf_analysis': ['WAF Detection'], 'recon': ['Reconnaissance'],
+    'jwt_analysis': ['JWT Security'], 'cve_matches': ['CVE Matching'],
+    'kill_chains': ['Kill Chain'], 'findings': ['Temuan Kerentanan'],
+    'chaos': ['Pengujian Chaos'], 'risk': ['Risk Register'],
+    'recommendations': ['Rekomendasi Remediasi'], 'limits': ['Batasan Pengujian'],
+    'appendix_cases': ['Daftar Skenario Uji'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
 }
 
@@ -438,6 +439,70 @@ class Report:
             rows.insert(3, ['Package ID', app.get('package', '-')])
         self.table(rows[0], rows[1:], widths=[1.8, 4.8])
         self.blocks(self.cfg.get('environment_blocks', []))
+
+    def waf_analysis(self):
+        w = self.triage.get('waf', {})
+        detected = w.get('detected', False)
+        waf_type = w.get('type', '(tidak terdeteksi)')
+        if not detected:
+            self.P('Tidak ada WAF yang terdeteksi pada target. Semua probe dikirim langsung tanpa bypass.', italic=True)
+            return
+        self.banner(f"WAF TERDETEKSI: {waf_type}", fill='1B365D', size=11)
+        self.P(f"Tipe WAF yang teridentifikasi: {waf_type}. Teknik bypass diuji secara otomatis sebelum setiap probe kerentanan.", italic=True)
+        bypass_ok = w.get('bypass_success', [])
+        bypass_fail = w.get('bypass_failed', [])
+        rows = (
+            [['BERHASIL', b] for b in bypass_ok] +
+            [['GAGAL', b] for b in bypass_fail]
+        )
+        if rows:
+            self.table(['Hasil', 'Teknik Bypass'], rows, widths=[1.2, 5.4])
+        self.blocks(self.cfg.get('waf_blocks', []))
+
+    def jwt_analysis(self):
+        jwts = self.triage.get('jwt_analysis', [])
+        if not jwts:
+            self.P('Tidak ada JWT yang ditemukan atau dianalisis pada sesi ini.', italic=True)
+            return
+        self.P('Setiap JWT yang ditemukan di header, cookie, atau response body dianalisis: decode claims, algorithm check, secret bruteforce, dan claim tampering.', italic=True)
+        for j in jwts:
+            sev = str(j.get('severity', 'HIGH')).upper()
+            h = self.H(f"{j.get('id','-')} — {j.get('location','-')}", 2)
+            for r in h.runs:
+                if sev in SEV_RGB: r.font.color.rgb = SEV_RGB[sev]
+            meta = [
+                ['Lokasi', j.get('location', '-')],
+                ['Algoritma', j.get('algorithm', '-')],
+                ['Kerentanan', j.get('vulnerability', '-')],
+                ['Severity', sev],
+                ['Eksploit Berhasil', j.get('exploit', '-')],
+            ]
+            self.table(['Parameter', 'Nilai'], meta, widths=[1.8, 4.8])
+            claims = j.get('claims', {})
+            if claims:
+                self.P('Decoded Claims:', bold=True)
+                for k, v in claims.items():
+                    self.bullet(f"{k}: {v}")
+
+    def cve_matches(self):
+        cves = self.triage.get('cve_matches', [])
+        if not cves:
+            self.P('Tidak ada CVE yang cocok ditemukan untuk komponen yang teridentifikasi.', italic=True)
+            return
+        self.P('Komponen dan versi yang teridentifikasi saat reconnaissance dicocokkan dengan database CVE NIST NVD. Tabel berikut menampilkan CVE dengan CVSS ≥ 7.0.', italic=True)
+        rows = [
+            [c.get('component', '-'),
+             c.get('cve', '-'),
+             str(c.get('cvss', '-')),
+             c.get('description', '-')[:80],
+             'YA' if c.get('likely_vulnerable') else 'PERLU VERIFIKASI']
+            for c in cves
+        ]
+        self.table(
+            ['Komponen', 'CVE', 'CVSS', 'Deskripsi', 'Kemungkinan Rentan'],
+            rows, widths=[1.5, 1.2, 0.6, 2.9, 1.4]
+        )
+        self.blocks(self.cfg.get('cve_blocks', []))
 
     def recon(self):
         r = self.triage.get('recon', {})
@@ -877,8 +942,8 @@ CVSS: {f.get('cvss', str(f['score']))}
 
 
 def _gen_dashboard(root, triage):
-    """Generate watch-dashboard.html — live view untuk Playwright watch mode."""
-    import datetime
+    """Generate watch-dashboard.html + compute watch diff vs triage-prev.json."""
+    import datetime, shutil
     target = triage.get('target', 'Target')
     date = triage.get('date', str(datetime.date.today()))
     verdict = triage.get('verdict', triage.get('summary', {}).get('verdict', 'PENDING'))
@@ -886,6 +951,35 @@ def _gen_dashboard(root, triage):
     chains = triage.get('kill_chains', [])
     summary = triage.get('summary', {})
     by_sev = summary.get('by_severity', {})
+    jwts = triage.get('jwt_analysis', [])
+    cves = triage.get('cve_matches', [])
+    waf = triage.get('waf', {})
+
+    # Watch diff — compare with previous triage
+    ai_dir = os.path.join(root, 'pendukung', 'ai')
+    prev_path = os.path.join(ai_dir, 'triage-prev.json')
+    new_ids = set(f['id'] for f in findings)
+    prev_ids = set()
+    changed_sev = {}
+    if os.path.isfile(prev_path):
+        try:
+            prev = json.load(open(prev_path, encoding='utf-8'))
+            prev_findings = norm_findings(prev)
+            prev_ids = set(f['id'] for f in prev_findings)
+            prev_sev = {f['id']: f['severity'] for f in prev_findings}
+            for f in findings:
+                if f['id'] in prev_sev and prev_sev[f['id']] != f['severity']:
+                    changed_sev[f['id']] = f"{'↑' if SEV_LI.get(f['severity'],(0,))[0] > SEV_LI.get(prev_sev[f['id']],(0,))[0] else '↓'} {prev_sev[f['id']]} → {f['severity']}"
+        except Exception:
+            pass
+    # Save current as prev for next run
+    curr_path = os.path.join(ai_dir, 'triage.json')
+    if os.path.isfile(curr_path) and os.path.isdir(ai_dir):
+        try: shutil.copy2(curr_path, prev_path)
+        except Exception: pass
+
+    added_ids = new_ids - prev_ids
+    removed_ids = prev_ids - new_ids
 
     sev_color = {'CRITICAL': '#B00000', 'HIGH': '#C05000', 'MEDIUM': '#8A6D00',
                  'LOW': '#336633', 'INFO': '#2B5B84', 'OPEN': '#8A6D00',
@@ -895,23 +989,53 @@ def _gen_dashboard(root, triage):
         c = color or sev_color.get(str(text).upper(), '#555')
         return f'<span style="background:{c};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:bold">{text}</span>'
 
-    finding_rows = ''.join(
-        f'<tr><td>{f["id"]}</td><td>{f["title"][:60]}</td>'
-        f'<td>{badge(f["severity"])}</td>'
-        f'<td style="text-align:center;font-weight:bold">{f["score"]}</td>'
-        f'<td>{f["status"]}</td></tr>'
-        for f in sorted(findings, key=lambda x: x['score'], reverse=True)
-    )
+    def finding_row(f):
+        is_new = f['id'] in added_ids
+        is_changed = f['id'] in changed_sev
+        highlight = ' style="background:#2A3A00"' if is_new else (' style="background:#2A1A00"' if is_changed else '')
+        new_tag = ' 🆕' if is_new else ''
+        chg_tag = f' ({changed_sev[f["id"]]})' if is_changed else ''
+        return (f'<tr{highlight}><td>{f["id"]}{new_tag}</td><td>{f["title"][:55]}{chg_tag}</td>'
+                f'<td>{badge(f["severity"])}</td>'
+                f'<td style="text-align:center;font-weight:bold">{f["score"]}</td>'
+                f'<td>{f["status"]}</td></tr>')
+
+    finding_rows = ''.join(finding_row(f) for f in sorted(findings, key=lambda x: x['score'], reverse=True))
 
     chain_rows = ''.join(
-        f'<tr><td>{kc.get("id","-")}</td><td>{kc.get("name","-")[:60]}</td>'
+        f'<tr><td>{kc.get("id","-")}</td><td>{kc.get("name","-")[:55]}</td>'
         f'<td>{badge(kc.get("severity","HIGH"))}</td>'
-        f'<td>{badge(kc.get("status","VERIFIED"), sev_color.get(kc.get("status","VERIFIED").upper(), "#555"))}</td></tr>'
+        f'<td>{badge(kc.get("status","VERIFIED"), sev_color.get(str(kc.get("status","VERIFIED")).upper(),"#555"))}</td></tr>'
         for kc in chains
     )
 
+    jwt_rows = ''.join(
+        f'<tr><td>{j.get("id","-")}</td><td>{j.get("algorithm","-")}</td>'
+        f'<td>{badge(j.get("severity","HIGH"))}</td>'
+        f'<td>{j.get("vulnerability","-")[:60]}</td></tr>'
+        for j in jwts
+    )
+
+    cve_rows = ''.join(
+        f'<tr><td>{c.get("component","-")}</td><td>{c.get("cve","-")}</td>'
+        f'<td style="font-weight:bold;color:{"#B00000" if float(str(c.get("cvss",0)).split()[0] if str(c.get("cvss",0)).replace(".","").isdigit() else 0)>=9 else "#C05000"}">{c.get("cvss","-")}</td>'
+        f'<td>{"🔴 RENTAN" if c.get("likely_vulnerable") else "⚠️ Verifikasi"}</td></tr>'
+        for c in cves
+    )
+
+    waf_badge = badge(f"WAF: {waf.get('type','Tidak Terdeteksi')}", '#1B365D' if waf.get('detected') else '#336633')
     cleanup_status = triage.get('chaos', {}).get('cleanup_status', 'VERIFIED')
     cleanup_badge = badge(f'CLEANUP: {cleanup_status}', sev_color.get(cleanup_status.upper(), '#555'))
+
+    diff_summary = ''
+    if added_ids or removed_ids or changed_sev:
+        diff_summary = f'''<div class="section">
+  <h2>⚡ Diff vs Sesi Sebelumnya</h2>
+  <table><thead><tr><th>Perubahan</th><th>ID</th></tr></thead><tbody>
+  {''.join(f'<tr style="background:#2A3A00"><td>🆕 Temuan Baru</td><td>{i}</td></tr>' for i in sorted(added_ids))}
+  {''.join(f'<tr style="background:#1A2A1A"><td>✅ Hilang / Resolved</td><td>{i}</td></tr>' for i in sorted(removed_ids))}
+  {''.join(f'<tr style="background:#2A1A00"><td>⚠️ Severity Berubah</td><td>{i}: {v}</td></tr>' for i, v in sorted(changed_sev.items()))}
+  </tbody></table></div>'''
 
     html = f"""<!DOCTYPE html>
 <html lang="id">
@@ -929,17 +1053,17 @@ def _gen_dashboard(root, triage):
   .card .num {{font-size:30px;font-weight:bold}} .card .lbl {{font-size:12px;color:#8A9BAD}}
   .section {{padding:0 28px 20px}} table {{width:100%;border-collapse:collapse;font-size:13px}}
   th {{background:#1B2F4A;padding:8px 10px;text-align:left;color:#7EC8E3}}
-  td {{padding:7px 10px;border-bottom:1px solid #1B2F4A}}
-  tr:nth-child(even) {{background:#111E30}}
-  .verdict {{padding:14px 28px;font-size:18px;font-weight:bold}}
-  .footer {{padding:10px 28px;font-size:11px;color:#8A9BAD;border-top:1px solid #1B2F4A}}
+  td {{padding:7px 10px;border-bottom:1px solid #152030}}
+  tr:nth-child(even) td {{background:rgba(255,255,255,0.03)}}
+  .verdict {{padding:14px 28px;font-size:16px;font-weight:bold}}
+  .footer {{padding:10px 28px;font-size:11px;color:#8A9BAD;border-top:1px solid #1B2F4A;margin-top:10px}}
   span {{display:inline-block}}
 </style>
 </head>
 <body>
 <header>
   <h1>🎯 Bug Hunter — Live Dashboard</h1>
-  <div class="meta">Target: <b style="color:#7EC8E3">{target}</b> &nbsp;|&nbsp; Tanggal: {date} &nbsp;|&nbsp; Auto-refresh: 10 detik</div>
+  <div class="meta">Target: <b style="color:#7EC8E3">{target}</b> &nbsp;|&nbsp; {date} &nbsp;|&nbsp; Auto-refresh: 10s &nbsp;|&nbsp; {waf_badge}</div>
 </header>
 
 <div class="grid">
@@ -950,28 +1074,44 @@ def _gen_dashboard(root, triage):
   <div class="card"><div class="num" style="color:#2B5B84">{by_sev.get('INFO',0)}</div><div class="lbl">INFO</div></div>
 </div>
 
-<div class="verdict">Status: {badge(verdict, '#B00000' if 'CRITICAL' in str(verdict) or 'DO_NOT' in str(verdict) else '#336633')}
-  &nbsp; {cleanup_badge}</div>
+<div class="verdict">
+  Status: {badge(verdict, '#B00000' if any(x in str(verdict) for x in ['CRITICAL','DO_NOT']) else '#336633')}
+  &nbsp; {cleanup_badge}
+  {f'&nbsp; {badge(str(len(jwts))+" JWT VULN","#B00000")}' if any(j.get('severity') in ('CRITICAL','HIGH') for j in jwts) else ''}
+  {f'&nbsp; {badge(str(len(cves))+" CVE MATCH","#C05000")}' if cves else ''}
+</div>
+
+{diff_summary}
 
 <div class="section">
-  <h2>Temuan Kerentanan ({len(findings)} total)</h2>
+  <h2>Temuan Kerentanan ({len(findings)} total{f", {len(added_ids)} baru" if added_ids else ""})</h2>
   <table>
     <thead><tr><th>ID</th><th>Judul</th><th>Severity</th><th>Skor</th><th>Status</th></tr></thead>
-    <tbody>{finding_rows if finding_rows else '<tr><td colspan=5 style="color:#8A9BAD">Belum ada temuan.</td></tr>'}</tbody>
+    <tbody>{finding_rows or '<tr><td colspan=5 style="color:#8A9BAD">Belum ada temuan.</td></tr>'}</tbody>
   </table>
 </div>
 
 {f'''<div class="section">
-  <h2>Kill Chain / Exploit Chain ({len(chains)} chain)</h2>
-  <table>
-    <thead><tr><th>ID</th><th>Nama Chain</th><th>Severity</th><th>Status</th></tr></thead>
-    <tbody>{chain_rows}</tbody>
-  </table>
+  <h2>Kill Chain / Exploit Chain ({len(chains)})</h2>
+  <table><thead><tr><th>ID</th><th>Nama Chain</th><th>Severity</th><th>Status</th></tr></thead>
+  <tbody>{chain_rows}</tbody></table>
 </div>''' if chains else ''}
 
+{f'''<div class="section">
+  <h2>JWT Analysis ({len(jwts)} token)</h2>
+  <table><thead><tr><th>ID</th><th>Algoritma</th><th>Severity</th><th>Kerentanan</th></tr></thead>
+  <tbody>{jwt_rows}</tbody></table>
+</div>''' if jwts else ''}
+
+{f'''<div class="section">
+  <h2>CVE Matches ({len(cves)} komponen)</h2>
+  <table><thead><tr><th>Komponen</th><th>CVE</th><th>CVSS</th><th>Status</th></tr></thead>
+  <tbody>{cve_rows}</tbody></table>
+</div>''' if cves else ''}
+
 <div class="footer">
-  Dashboard ini di-generate otomatis setiap run hunt selesai. Tutup browser atau ketik <code>stop hunt</code> di chat untuk menghentikan watch mode.
-  <br>Source: pendukung/ai/triage.json &nbsp;|&nbsp; Last updated: {date}
+  Auto-refresh 10 detik. Tutup browser atau ketik <code>stop hunt</code> di chat untuk menghentikan watch mode.<br>
+  Source: pendukung/ai/triage.json &nbsp;|&nbsp; Last updated: {date}
 </div>
 </body>
 </html>"""
