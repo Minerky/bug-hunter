@@ -34,8 +34,10 @@ SEV_RGB = {'CRITICAL': RGBColor(0xB0,0x00,0x00), 'HIGH': RGBColor(0xC0,0x50,0x00
            'INFO': RGBColor(0x2B,0x5B,0x84)}
 
 _FULL = ['cover','executive','scope','method','environment',
-         'waf_analysis','recon','jwt_analysis','cve_matches',
-         'kill_chains','findings','chaos',
+         'waf_analysis','recon','subdomain_takeover',
+         'jwt_analysis','oauth_analysis','twofa_analysis',
+         'api_versions','blind_findings','business_logic','cache_poisoning',
+         'cve_matches','kill_chains','findings','chaos',
          'risk','recommendations','limits',
          'appendix_cases','appendix_evidence','appendix_extra']
 
@@ -44,34 +46,45 @@ DEFAULT_CHAPTERS = {
 }
 
 BUILTIN_TITLES = {
-    'executive':       'Ringkasan Eksekutif & Distribusi Risiko',
-    'scope':           'Scope & Rules of Engagement',
-    'method':          'Metodologi Pengujian',
-    'environment':     'Target & Lingkungan Pengujian',
-    'waf_analysis':    'WAF Detection & Bypass Analysis',
-    'recon':           'Reconnaissance & Attack Surface Mapping',
-    'jwt_analysis':    'JWT Security Analysis',
-    'cve_matches':     'CVE Matching dari Tech Fingerprint',
-    'kill_chains':     'Kill Chain & Exploit Chain Analysis',
-    'findings':        'Temuan Kerentanan & Bukti PoC',
-    'passed':          'Pemeriksaan yang Lolos',
-    'chaos':           'Pengujian Chaos / Monkey & Status Cleanup',
-    'risk':            'Risk Register & Matriks Risiko',
-    'recommendations': 'Rekomendasi Remediasi Prioritas',
-    'limits':          'Batasan Pengujian & Status',
-    'appendix_cases':  'Lampiran — Daftar Skenario Uji',
-    'appendix_evidence':'Lampiran — Inventaris Bukti & Traffic',
-    'appendix_extra':  'Lampiran — Bukti Visual / Screenshot',
+    'executive':          'Ringkasan Eksekutif & Distribusi Risiko',
+    'scope':              'Scope & Rules of Engagement',
+    'method':             'Metodologi Pengujian',
+    'environment':        'Target & Lingkungan Pengujian',
+    'waf_analysis':       'WAF Detection & Bypass Analysis',
+    'recon':              'Reconnaissance & Attack Surface Mapping',
+    'subdomain_takeover': 'Subdomain Takeover Detection',
+    'jwt_analysis':       'JWT Security Analysis',
+    'oauth_analysis':     'OAuth 2.0 / OIDC Abuse Testing',
+    'twofa_analysis':     '2FA / OTP Bypass Testing',
+    'api_versions':       'API Versioning Abuse',
+    'blind_findings':     'Blind Vulnerability Detection (OOB)',
+    'business_logic':     'Business Logic Testing',
+    'cache_poisoning':    'Cache Poisoning & Cache Deception',
+    'cve_matches':        'CVE Matching dari Tech Fingerprint',
+    'kill_chains':        'Kill Chain & Exploit Chain Analysis',
+    'findings':           'Temuan Kerentanan & Bukti PoC',
+    'passed':             'Pemeriksaan yang Lolos',
+    'chaos':              'Pengujian Chaos / Monkey & Status Cleanup',
+    'risk':               'Risk Register & Matriks Risiko',
+    'recommendations':    'Rekomendasi Remediasi Prioritas',
+    'limits':             'Batasan Pengujian & Status',
+    'appendix_cases':     'Lampiran — Daftar Skenario Uji',
+    'appendix_evidence':  'Lampiran — Inventaris Bukti & Traffic',
+    'appendix_extra':     'Lampiran — Bukti Visual / Screenshot',
 }
 
 SECTION_HINTS = {
     'scope': ['Scope & Rules'], 'method': ['Metodologi'], 'environment': ['Target & Lingkungan'],
     'waf_analysis': ['WAF Detection'], 'recon': ['Reconnaissance'],
-    'jwt_analysis': ['JWT Security'], 'cve_matches': ['CVE Matching'],
-    'kill_chains': ['Kill Chain'], 'findings': ['Temuan Kerentanan'],
-    'chaos': ['Pengujian Chaos'], 'risk': ['Risk Register'],
-    'recommendations': ['Rekomendasi Remediasi'], 'limits': ['Batasan Pengujian'],
-    'appendix_cases': ['Daftar Skenario Uji'],
+    'subdomain_takeover': ['Subdomain Takeover'],
+    'jwt_analysis': ['JWT Security'], 'oauth_analysis': ['OAuth'],
+    'twofa_analysis': ['2FA'], 'api_versions': ['API Versioning'],
+    'blind_findings': ['Blind Vulnerability'], 'business_logic': ['Business Logic'],
+    'cache_poisoning': ['Cache Poisoning'],
+    'cve_matches': ['CVE Matching'], 'kill_chains': ['Kill Chain'],
+    'findings': ['Temuan Kerentanan'], 'chaos': ['Pengujian Chaos'],
+    'risk': ['Risk Register'], 'recommendations': ['Rekomendasi Remediasi'],
+    'limits': ['Batasan Pengujian'], 'appendix_cases': ['Daftar Skenario Uji'],
     'appendix_evidence': ['Inventaris Bukti'], 'appendix_extra': ['Bukti Visual'],
 }
 
@@ -503,6 +516,121 @@ class Report:
             rows, widths=[1.5, 1.2, 0.6, 2.9, 1.4]
         )
         self.blocks(self.cfg.get('cve_blocks', []))
+
+    def subdomain_takeover(self):
+        items = self.triage.get('subdomain_takeover', [])
+        if not items:
+            self.P('Tidak ada kandidat subdomain takeover yang terdeteksi.', italic=True)
+            return
+        self.P('Subdomain dengan CNAME pointing ke layanan eksternal yang sudah dihapus atau tidak diklaim — rawan diambil alih oleh penyerang.', italic=True)
+        rows = [
+            [t.get('id', '-'), t.get('subdomain', '-'), t.get('cname', '-'),
+             t.get('service', '-'),
+             'CONFIRMED' if t.get('confirmed') else 'KANDIDAT',
+             t.get('severity', 'HIGH')]
+            for t in items
+        ]
+        self.table(
+            ['ID', 'Subdomain', 'CNAME Target', 'Layanan', 'Status', 'Severity'],
+            rows, widths=[0.7, 1.9, 1.9, 1.1, 1.0, 0.8], severity_col=5
+        )
+        for t in items:
+            if t.get('note'):
+                self.bullet(f"{t.get('id','')}: {t['note']}")
+
+    def oauth_analysis(self):
+        items = self.triage.get('oauth_analysis', [])
+        if not items:
+            self.P('Tidak ada OAuth 2.0 / OIDC flow yang terdeteksi atau tidak ada kerentanan yang ditemukan.', italic=True)
+            return
+        self.P('OAuth 2.0 dan OIDC flow diuji untuk redirect_uri bypass, state CSRF, implicit token leak, PKCE bypass, dan account linking abuse.', italic=True)
+        for o in items:
+            sev = str(o.get('severity', 'HIGH')).upper()
+            h = self.H(f"{o.get('id', '-')} — {o.get('flow', '-')}", 2)
+            for r in h.runs:
+                if sev in SEV_RGB: r.font.color.rgb = SEV_RGB[sev]
+            meta = [
+                ['Flow / Grant Type', o.get('flow', '-')],
+                ['Kerentanan', o.get('vulnerability', '-')],
+                ['Severity', sev],
+                ['Eksploit Berhasil', o.get('exploit', '-')],
+            ]
+            self.table(['Parameter', 'Nilai'], meta, widths=[1.8, 4.8])
+
+    def twofa_analysis(self):
+        items = self.triage.get('twofa_analysis', [])
+        if not items:
+            self.P('Tidak ada 2FA/OTP yang terdeteksi atau tidak ada bypass yang berhasil.', italic=True)
+            return
+        self.P('Mekanisme 2FA dan OTP diuji: rate limit, code reuse, skip step, response manipulation, dan brute-force.', italic=True)
+        rows = [
+            [t.get('id', '-'), t.get('method', '-'), t.get('vulnerability', '-')[:70],
+             t.get('severity', 'HIGH')]
+            for t in items
+        ]
+        self.table(['ID', 'Metode 2FA', 'Kerentanan', 'Severity'], rows,
+                   widths=[0.7, 1.2, 4.1, 0.8], severity_col=3)
+        for t in items:
+            if t.get('exploit'):
+                self.bullet(f"{t.get('id','')}: {t['exploit']}")
+
+    def api_versions(self):
+        items = self.triage.get('api_versions', [])
+        if not items:
+            self.P('Tidak ada endpoint API versi lama yang teridentifikasi.', italic=True)
+            return
+        self.P('Endpoint API versi lama (deprecated) sering memiliki kontrol akses yang lebih lemah dibanding versi terkini.', italic=True)
+        rows = [
+            [a.get('id', '-'), a.get('endpoint', '-'), a.get('current', '-'),
+             a.get('finding', '-')[:60], a.get('severity', 'MEDIUM')]
+            for a in items
+        ]
+        self.table(['ID', 'Endpoint Lama', 'Versi Current', 'Temuan', 'Severity'],
+                   rows, widths=[0.7, 1.7, 1.0, 3.0, 0.9], severity_col=4)
+
+    def blind_findings(self):
+        items = self.triage.get('blind_findings', [])
+        if not items:
+            self.P('Tidak ada blind vulnerability (OOB/canary) yang terkonfirmasi.', italic=True)
+            return
+        self.P('Kerentanan yang dideteksi via Out-of-Band callback (DNS canary, canary domain) — tidak langsung terlihat dari response HTTP biasa.', italic=True)
+        rows = [
+            [b.get('id', '-'), b.get('type', '-'), b.get('location', '-')[:50],
+             b.get('canary_hit', '-')[:60], b.get('severity', 'HIGH')]
+            for b in items
+        ]
+        self.table(['ID', 'Tipe', 'Lokasi / Parameter', 'Canary Callback', 'Severity'],
+                   rows, widths=[0.7, 1.2, 2.0, 2.5, 0.9], severity_col=4)
+
+    def business_logic(self):
+        items = self.triage.get('business_logic', [])
+        if not items:
+            self.P('Tidak ada business logic flaw yang teridentifikasi.', italic=True)
+            return
+        self.P('Pengujian logika bisnis: negative price, coupon stacking, race condition pada limit, privilege escalation, workflow skip, dan role boundary bypass.', italic=True)
+        rows = [
+            [b.get('id', '-'), b.get('type', '-'), b.get('location', '-')[:45],
+             b.get('finding', '-')[:65], b.get('severity', 'HIGH')]
+            for b in items
+        ]
+        self.table(['ID', 'Tipe', 'Lokasi', 'Temuan', 'Severity'],
+                   rows, widths=[0.7, 1.4, 1.6, 2.7, 0.9], severity_col=4)
+
+    def cache_poisoning(self):
+        items = self.triage.get('cache_poisoning', [])
+        if not items:
+            self.P('Tidak ada cache poisoning atau cache deception yang terkonfirmasi.', italic=True)
+            return
+        self.P('Web Cache Poisoning via unkeyed header injection dan Web Cache Deception via path confusion diuji pada semua endpoint publik.', italic=True)
+        rows = [
+            [c.get('id', '-'), c.get('type', '-'),
+             c.get('header', c.get('path', '-'))[:45],
+             'CONFIRMED' if c.get('confirmed') else 'PARTIAL',
+             c.get('severity', 'HIGH')]
+            for c in items
+        ]
+        self.table(['ID', 'Tipe', 'Vector', 'Konfirmasi', 'Severity'],
+                   rows, widths=[0.7, 1.6, 2.5, 1.0, 0.9], severity_col=4)
 
     def recon(self):
         r = self.triage.get('recon', {})
@@ -954,6 +1082,12 @@ def _gen_dashboard(root, triage):
     jwts = triage.get('jwt_analysis', [])
     cves = triage.get('cve_matches', [])
     waf = triage.get('waf', {})
+    oauths = triage.get('oauth_analysis', [])
+    twofas = triage.get('twofa_analysis', [])
+    blinds = triage.get('blind_findings', [])
+    bizlogics = triage.get('business_logic', [])
+    caches = triage.get('cache_poisoning', [])
+    takeovers = triage.get('subdomain_takeover', [])
 
     # Watch diff — compare with previous triage
     ai_dir = os.path.join(root, 'pendukung', 'ai')
@@ -1079,6 +1213,10 @@ def _gen_dashboard(root, triage):
   &nbsp; {cleanup_badge}
   {f'&nbsp; {badge(str(len(jwts))+" JWT VULN","#B00000")}' if any(j.get('severity') in ('CRITICAL','HIGH') for j in jwts) else ''}
   {f'&nbsp; {badge(str(len(cves))+" CVE MATCH","#C05000")}' if cves else ''}
+  {f'&nbsp; {badge(str(len([o for o in oauths if o.get("severity") in ("CRITICAL","HIGH")]))+" OAUTH VULN","#B00000")}' if any(o.get('severity') in ('CRITICAL','HIGH') for o in oauths) else ''}
+  {f'&nbsp; {badge(str(len(twofas))+" 2FA BYPASS","#B00000")}' if twofas else ''}
+  {f'&nbsp; {badge(str(len(blinds))+" BLIND OOB","#C05000")}' if blinds else ''}
+  {f'&nbsp; {badge(str(len([t for t in takeovers if t.get("confirmed")]))+" TAKEOVER","#B00000")}' if any(t.get('confirmed') for t in takeovers) else ''}
 </div>
 
 {diff_summary}
@@ -1098,10 +1236,52 @@ def _gen_dashboard(root, triage):
 </div>''' if chains else ''}
 
 {f'''<div class="section">
+  <h2>Subdomain Takeover ({len(takeovers)} kandidat)</h2>
+  <table><thead><tr><th>ID</th><th>Subdomain</th><th>CNAME</th><th>Layanan</th><th>Status</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{t.get("id","-")}</td><td>{t.get("subdomain","-")}</td><td>{t.get("cname","-")}</td><td>{t.get("service","-")}</td><td>{badge("CONFIRMED","#B00000") if t.get("confirmed") else "kandidat"}</td></tr>' for t in takeovers)}</tbody>
+  </table>
+</div>''' if takeovers else ''}
+
+{f'''<div class="section">
   <h2>JWT Analysis ({len(jwts)} token)</h2>
   <table><thead><tr><th>ID</th><th>Algoritma</th><th>Severity</th><th>Kerentanan</th></tr></thead>
   <tbody>{jwt_rows}</tbody></table>
 </div>''' if jwts else ''}
+
+{f'''<div class="section">
+  <h2>OAuth / OIDC ({len(oauths)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Flow</th><th>Severity</th><th>Kerentanan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{o.get("id","-")}</td><td>{o.get("flow","-")}</td><td>{badge(o.get("severity","HIGH"))}</td><td>{o.get("vulnerability","-")[:70]}</td></tr>' for o in oauths)}</tbody>
+  </table>
+</div>''' if oauths else ''}
+
+{f'''<div class="section">
+  <h2>2FA / OTP Bypass ({len(twofas)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Metode</th><th>Severity</th><th>Kerentanan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{t.get("id","-")}</td><td>{t.get("method","-")}</td><td>{badge(t.get("severity","HIGH"))}</td><td>{t.get("vulnerability","-")[:70]}</td></tr>' for t in twofas)}</tbody>
+  </table>
+</div>''' if twofas else ''}
+
+{f'''<div class="section">
+  <h2>Blind OOB Vulnerabilities ({len(blinds)} confirmed)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Severity</th><th>Canary Callback</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{b.get("id","-")}</td><td>{b.get("type","-")}</td><td>{badge(b.get("severity","HIGH"))}</td><td>{b.get("canary_hit","-")[:70]}</td></tr>' for b in blinds)}</tbody>
+  </table>
+</div>''' if blinds else ''}
+
+{f'''<div class="section">
+  <h2>Business Logic ({len(bizlogics)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Severity</th><th>Temuan</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{b.get("id","-")}</td><td>{b.get("type","-")}</td><td>{badge(b.get("severity","HIGH"))}</td><td>{b.get("finding","-")[:70]}</td></tr>' for b in bizlogics)}</tbody>
+  </table>
+</div>''' if bizlogics else ''}
+
+{f'''<div class="section">
+  <h2>Cache Poisoning ({len(caches)} finding)</h2>
+  <table><thead><tr><th>ID</th><th>Tipe</th><th>Severity</th><th>Vector</th></tr></thead>
+  <tbody>{''.join(f'<tr><td>{c.get("id","-")}</td><td>{c.get("type","-")}</td><td>{badge(c.get("severity","HIGH"))}</td><td>{c.get("header",c.get("path","-"))[:60]}</td></tr>' for c in caches)}</tbody>
+  </table>
+</div>''' if caches else ''}
 
 {f'''<div class="section">
   <h2>CVE Matches ({len(cves)} komponen)</h2>
