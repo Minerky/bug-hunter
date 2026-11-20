@@ -407,13 +407,26 @@ Gunakan bila temuan keamanan perlu dibuktikan dengan data nyata tanpa mengubahny
    Bila database tidak terjangkau → `BLOCKED`, bukan diklaim aman.
 6. Koneksi ini untuk **membuktikan**, bukan mengeksploitasi. Dilarang memakainya untuk mengubah,
    menghapus, atau mengekstrak data di luar scope yang disetujui.
-7. **Stored procedure — baca definisi, jangan jalankan.** Kunci `sp` di check, misalnya
-   `{"id":"SP-01","sp":"dbo.NamaProsedur","expect":{"column":"definisi","contains_all":["IF @status","RAISERROR","RETURN"]}}`
-   atau `{"id":"SP-02","sp":"*"}` untuk daftar semua prosedur, diterjemahkan menjadi `SELECT` ke
-   `sys.sql_modules`/`sys.objects` dengan parameter binding. `contains_all` memeriksa beberapa
-   kondisi sekaligus di teks definisi untuk membuktikan aturan di dalam prosedur tanpa menjalankannya.
+7. **Stored procedure — baca definisi, jangan jalankan.** Kunci `sp`:
+   - Nama exact: `{"sp":"dbo.ValidateProblem","expect":{"column":"definisi","contains_all":["IF @status","RAISERROR"]}}`
+   - Banyak SP: `{"sp":"Valid*","limit":10,"offset":0}` — `*` wildcard nama; `offset`/`limit`
+     paging, dan `total_matching` menyatakan total SP yang cocok.
+   - Cari dari pesan: `{"sp":"*","definition_contains":"area wajib diisi"}` atau
+     `{"sp":"*","definition_all":["IF @status","RAISERROR"]}` — melacak source notifikasi ke SP
+     tanpa menjalankannya.
+   Semua diterjemahkan menjadi `SELECT` ke `sys.sql_modules`/`sys.objects` dengan parameter binding.
    **`EXEC` sengaja ditolak** — prosedur bisa berisi DML/DDL dan akan mengubah bukti serta data.
    SQLite tidak punya SP; check `sp` di SQLite gagal dengan pesan yang jelas.
+
+8. **Lacak notifikasi → SP tanpa mengisi kredensial.** Bila yang ada hanya teks notifikasi, jalankan
+   `python find_notif.py --text "Validasi gagal: area wajib diisi"`. Skrip mencari targetnya sendiri:
+   file kredensial → connection string di `appsettings*.json` / `web.config` / `.env` /
+   `docker-compose*.yml` di sekitar workspace → instance lokal. Windows Integrated Auth dipakai bila
+   tidak ada password, jadi **tidak perlu mengisi kredensial**. Hanya nama server/database yang
+   diekstrak dari config — password tidak pernah dibaca, disimpan, atau ditampilkan. Output
+   `pendukung/ai/sp-notif-search.json` berisi `database.schema.prosedur` dan baris definisi yang cocok.
+   Tetap `SELECT` katalog, tanpa `EXEC`. Bila tidak ada target yang terjangkau → `BLOCKED`, bukan
+   ditebak; yang diminta adalah nama instance/akses jaringan, **bukan password**.
 
 ### §27 — Watch Mode (Playwright Live Dashboard)
 
