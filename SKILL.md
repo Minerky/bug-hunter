@@ -390,9 +390,11 @@ Gunakan bila temuan keamanan perlu dibuktikan dengan data nyata tanpa mengubahny
 
 1. **Otorisasi tertulis tetap wajib** — scope harus mencakup database yang diakses. Gunakan akun
    **read-only** dan staging/UAT terlebih dahulu; produksi hanya dengan approval eksplisit.
-2. **Koneksi dari environment variable** — `QA_DB_SQLITE` (SQLite) atau `QA_DB_SERVER` +
-   `QA_DB_NAME` + `QA_DB_USER` + `QA_DB_PASS` (+ `QA_DB_AUTH=windows` untuk Windows auth).
-   Password tidak pernah ditulis di chat, spec, `triage.json`, atau DOCX.
+2. **Koneksi dari file kredensial lokal** — `%USERPROFILE%\.config\opencode\qa-credentials.local.json`,
+   blok `db`: `sqlite` / `server` / `database` / `user` / `password` / `auth` / `driver` / `limit`.
+   File ini sengaja **di luar repo git** — jangan dipindah ke workspace. Environment variable
+   (`QA_DB_SQLITE`, `QA_DB_SERVER`, `QA_DB_NAME`, `QA_DB_USER`, `QA_DB_PASS`, `QA_DB_AUTH`, ...)
+   lebih prioritas. Password tidak pernah ditulis di chat, spec, `triage.json`, atau DOCX.
 3. **Jalankan** `python db_verify.py --checks <file-json> --out pendukung/ai/db-verification.json`.
    Hanya `SELECT` / `WITH` / `PRAGMA`, satu statement per check — `INSERT`/`UPDATE`/`DELETE`/`DROP`
    dan multi-statement ditolak otomatis.
